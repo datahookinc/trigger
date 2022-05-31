@@ -1,4 +1,4 @@
-import CreateStore, { Store } from './trigger';
+import CreateStore, { Store } from '../trigger/trigger';
 
 export type ModelEntry = {
     _pk: number;
@@ -17,8 +17,6 @@ type MyStore = Store & {
         }
     }
 }
-
-export type TableName = Extract<keyof Store["tables"], string>; // here to prevent TypeScript from using string | number as index
 
 const store: MyStore = {
     tables: {

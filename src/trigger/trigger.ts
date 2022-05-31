@@ -458,8 +458,8 @@ export default function CreateStore(initialState: Store) {
         setError,
     };
 
-    const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName) => useTable<T>(api, t);
-    const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK) => useTableRow<T>(api, t, pk);
+    const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName, notify: TableNotify[] = []) => useTable<T>(api, t, notify);
+    const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK, notify: TableRowNotify[] = []) => useTableRow<T>(api, t, pk, notify);
 
     return {
         useTable: useBoundTable,
