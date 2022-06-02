@@ -32,7 +32,7 @@ const store: MyStore = {
     error: '',
 }
 
-const { useTable, useTableRow, insertTableRow, deleteTableRow, updateTableRow } = CreateStore(store);
+const { useTable, useTableRow, insertTableRow, deleteTableRow, updateTableRow, findRow } = CreateStore(store);
 
 describe('Basic operations', () => {
     test('if initial state produces proper primary keys', () => {
@@ -78,13 +78,23 @@ describe('Basic operations', () => {
         expect(result.current?.name).toBe('updatedName');
     });
 
-    // LEFT-OFF: adding tests for the notify logic (e.g., if only subscribed to UPDATE then....)
-    // LEFT-OFF: why would I want the table to remain in an inconsistent state? I guess the primary keys remain the same...
-    // LEFT-OFF: maybe they can simply opt-out of updates on the table for when values of a row are changed?
-    it('should update the table when a row is removed', () => {
-        const { result } = renderHook(() => useTable<ModelEntry>('models', []));
+    it('should update the table when a row is changed', () => {
+        const { result } = renderHook(() => useTable<ModelEntry>('models', ['rowUpdate']));
+        act(() => {
+            updateTableRow('models', 2, { name: 'updatedNameAgain' });
+        });
+        const value = result.current.find(d => d._pk === 2);
+        expect(value?.name).toBe('updatedNameAgain');
     });
 
+    it('should not update when a row is changed', () => {
+        const { result } = renderHook(() => useTable<ModelEntry>('models', ['rowDelete', 'rowInsert']));
+        act(() => {
+            updateTableRow('models', 2, { name: 'updatedNameToNewValue' });
+        });
+        const value = result.current.find(d => d._pk === 2);
+        expect(value?.name).toBe('updatedNameAgain');
+    });
 });
 
 

@@ -5,16 +5,14 @@ type TableName = Extract<keyof Store["tables"], string>; // here to prevent Type
 /** Autoincrementing primary key required for tables */
 type PK = number;
 
-type TableNotify = 'tableInsert' | 'tableDelete' | 'tableUpdate';
-type TableRowNotify = 'rowUpdate' | 'rowDelete';
+type TableNotify = 'rowInsert' | 'rowDelete' | 'rowUpdate';
+type RowNotify = 'rowUpdate' | 'rowDelete';
 /** Notify is a union of the available notification events that can be subscribed to
- * - tableInsert
- * - tableDelete
- * - tableupdate
- * - rowUpdate
+ * - rowInsert
  * - rowDelete
+ * - rowUpdate
 */
-type Notify = TableNotify | TableRowNotify;
+type Notify = TableNotify | RowNotify;
 type Subscribe = {
     notify: Notify[];
     fn(v: any): void;
@@ -78,7 +76,7 @@ function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: Tabl
 }
 
 // this is the value that updated, were any subscribers interested in it?
-function useTableRow<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, pk: number, notify: TableRowNotify[] = []) {
+function useTableRow<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, pk: number, notify: RowNotify[] = []) {
     const [v, setV] = useState<null | T>(() => {
         return api.getTableRow<T>(t, pk);
     });
@@ -175,7 +173,7 @@ export default function CreateStore(initialState: Store) {
         });
     };
 
-    const registerRow = (tName: TableName, pk: PK, fn: (v: any) => void, notify: TableRowNotify[]) => {
+    const registerRow = (tName: TableName, pk: PK, fn: (v: any) => void, notify: RowNotify[]) => {
         if (!rowSubscriptions[tName]) {
             rowSubscriptions[tName] = {};
         }
@@ -197,7 +195,7 @@ export default function CreateStore(initialState: Store) {
     };
 
     const unregisterRow = (tName:  TableName, pk: PK, fn: (v: any) => void) => {
-        if (rowSubscriptions?.[tName]?.[pk]) {
+        if (rowSubscriptions[tName]?.[pk]) {
             rowSubscriptions[tName][pk] = rowSubscriptions[tName][pk].filter(d => d.fn !== fn);
             if (rowSubscriptions[tName][pk].length === 0) {
                 delete rowSubscriptions[tName][pk]; // remove the property entirely if there are no listeners
@@ -206,7 +204,7 @@ export default function CreateStore(initialState: Store) {
     };
 
     const notifyTableSubscribers = (ne: TableNotify, tName: TableName) => {
-        if (tableSubscriptions?.[tName].length > 0) {
+        if (tableSubscriptions[tName]?.length > 0) {
             new Promise(() => {
                 const subscribers: Array<(v: any) => void> = [];
                 for (let i = 0, len = tableSubscriptions[tName].length; i < len; i++) {
@@ -230,8 +228,8 @@ export default function CreateStore(initialState: Store) {
         }
     };
 
-    const notifyRowSubscribers = (ne: TableRowNotify, tName: TableName, pk: PK) => {
-        if (rowSubscriptions?.[tName]?.[pk].length > 0) {
+    const notifyRowSubscribers = (ne: RowNotify, tName: TableName, pk: PK) => {
+        if (rowSubscriptions[tName]?.[pk]?.length > 0) {
             new Promise(() => {
                 const subscribers: Array<(v: any) => void> = [];
                 for (let i = 0, len = rowSubscriptions[tName][pk].length; i < len; i++) {
@@ -377,7 +375,7 @@ export default function CreateStore(initialState: Store) {
                 table[arrayProperties[i]].push(valueMap[arrayProperties[i]]);
             }
 
-            notifyTableSubscribers('tableInsert', tName);
+            notifyTableSubscribers('rowInsert', tName);
             // TODO: add entry to the _ledger
             // TODO: add locking
             // TODO: run triggers
@@ -414,7 +412,7 @@ export default function CreateStore(initialState: Store) {
                     }
                 }
                 notifyRowSubscribers('rowUpdate', tName, pk);
-                notifyTableSubscribers('tableUpdate', tName);
+                notifyTableSubscribers('rowUpdate', tName);
                 return true;
             }
         }
@@ -437,7 +435,7 @@ export default function CreateStore(initialState: Store) {
                     table[arrayProperties[k]].splice(idx, 1);
                 }
                 notifyRowSubscribers('rowDelete', tName, pk);
-                notifyTableSubscribers('tableDelete', tName);
+                notifyTableSubscribers('rowDelete', tName);
                 return true;
             }
         }
@@ -459,7 +457,7 @@ export default function CreateStore(initialState: Store) {
     };
 
     const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName, notify: TableNotify[] = []) => useTable<T>(api, t, notify);
-    const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK, notify: TableRowNotify[] = []) => useTableRow<T>(api, t, pk, notify);
+    const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK, notify: RowNotify[] = []) => useTableRow<T>(api, t, pk, notify);
 
     return {
         useTable: useBoundTable,

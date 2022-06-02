@@ -21,8 +21,8 @@
     "start": "react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
-    "eject": "react-scripts eject",
-    "test-jest": "jest trigger.test.ts"
+    "test-hooks": "react-scripts test trigger.test.ts",
+    "eject": "react-scripts eject"
   },
   "eslintConfig": {
     "extends": [
