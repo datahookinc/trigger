@@ -10,12 +10,15 @@ export type ModelEntry = {
 type MyStore = Store & {
     tables: {
         models: {
-            _pk: Array<ModelEntry["_pk"]>,
-            uuid: Array<ModelEntry["uuid"]>,
-            name: Array<ModelEntry["uuid"]>,
-            description: Array<ModelEntry["uuid"]>,
-        }
-    }
+            _pk: Array<ModelEntry["_pk"]>;
+            uuid: Array<ModelEntry["uuid"]>;
+            name: Array<ModelEntry["uuid"]>;
+            description: Array<ModelEntry["uuid"]>;
+        };
+    };
+    singles: {
+        unsavedChanges: boolean;
+    };
 }
 
 const store: MyStore = {
@@ -27,16 +30,20 @@ const store: MyStore = {
             description: ['desc1', 'desc2', 'desc3'],
         }
     },
-    singles: {},
+    singles: {
+        unsavedChanges: false,
+    },
     error: '',
 }
 
-const { useTable, useTableRow, insertTableRow, deleteTableRow, updateTableRow } = CreateStore(store);
+const { useTable, useTableRow, insertTableRow, deleteTableRow, updateTableRow, clearTable, useSingle, setSingle, getSingle } = CreateStore(store);
 
 export {
     useTable,
     useTableRow,
+    useSingle,
     insertTableRow,
     updateTableRow,
     deleteTableRow,
+    setSingle,
 }

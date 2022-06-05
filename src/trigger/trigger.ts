@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 
 // type StoreEntry = Store["models"][number]; how we can get the type of an element in an array
 type TableName = Extract<keyof Store["tables"], string>; // here to prevent TypeScript from using string | number as index
+type SingleName = Extract<keyof Store["singles"], string>; // here to prevent TypeScript from using string | number as index
 /** Autoincrementing primary key required for tables */
 type PK = number;
 
@@ -18,7 +19,6 @@ type Subscribe = {
     fn(v: any): void;
 };
 
-// THOUGHTS: could consider making the backing arrays strongly  typed (e.g., Uint16Array for strings, Float64 for numbers), this would let me test their type as well
 export type AllowedPrimitives = string | number | boolean | null;
 
 // Note: triggers should happen BEFORE the change; notifications should happen AFTER the change
@@ -37,10 +37,12 @@ export type Store = {
 }
 
 type API = {
-    registerTable(tName: TableName, fn: (v: any) => void, notify: Notify[]): void;
+    registerTable(tName: TableName, fn: (v: any[]) => void, notify: Notify[]): void;
     registerRow(tName: TableName, pk: PK, fn: (v: any) => void, notify: Notify[]): void;
+    registerSingle(sName: SingleName, fn: (v: any) => void): void;
     unregisterRow(tName: TableName, pk: PK, fn: (v: any) => void): void;
-    unregisterTable(tName: TableName, fn: (v: any) => void): void;
+    unregisterTable(tName: TableName, fn: (v: any[]) => void): void;
+    unregisterSingle(sName: SingleName, fn: (v: any) => void): void;
     getTable<T extends Record<string, AllowedPrimitives>>(t: TableName): T[];
     getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | null;
     findRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: Record<string, AllowedPrimitives>): T | null;
@@ -48,12 +50,13 @@ type API = {
     insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: T): boolean;
     updateTableRow<T extends Record<string, AllowedPrimitives>>(tName: TableName, pk: PK, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} ): boolean;
     deleteTableRow(tName: TableName, pk: PK): boolean;
+    clearTable(tName: TableName): boolean;
+    getSingle<T,>(sName: SingleName): T | null;
 }
 
-function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, notify: TableNotify[] = [] ) {
-    const [v, setV] = useState<T[]>(() => {
-        return api.getTable<T>(t);
-    });
+function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, notify: TableNotify[] = [] ): T[] {
+    const [v, setV] = useState<T[]>(() => api.getTable<T>(t)); // set initial value
+
     const registered = useRef<null | ((v: T[]) => void)>(null);
 
     useEffect(() => {
@@ -76,11 +79,8 @@ function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: Tabl
 }
 
 // this is the value that updated, were any subscribers interested in it?
-function useTableRow<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, pk: number, notify: RowNotify[] = []) {
-    const [v, setV] = useState<null | T>(() => {
-        return api.getTableRow<T>(t, pk);
-    });
-
+function useTableRow<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, pk: number, notify: RowNotify[] = []): T | null {
+    const [v, setV] = useState<null | T>(() => api.getTableRow<T>(t, pk)); // set initial value;
     const registered = useRef<null | ((v: T) => void)>(null);
 
     useEffect(() => {
@@ -102,12 +102,36 @@ function useTableRow<T extends Record<string, AllowedPrimitives>>(api: API, t: T
     return v;
 }
 
+function useSingle<T>(api: API, sName: string): T | null {
+    const [v, setV] = useState<null | T>(() => api.getSingle<T>(sName)); // set initial value
+    const registered = useRef<null | ((v: T) => void)>(null);
+
+    useEffect(() => {
+        // unregister when component unmounts;
+        return () => {
+            if (registered.current) {
+                api.unregisterSingle(sName, registered.current);
+            }
+        }
+    }, [api, sName]);
+
+    if (registered.current === null) {
+        const subscribe = (v: T) => {
+            setV(v);
+        };
+        registered.current = subscribe;
+        api.registerSingle(sName, subscribe); 
+    }
+    return v;
+}
+
 // THOUGHTS: when creating the store, the user could pass a properties object with instructions like enforcing unique column values
 // THOUGHTS: we haven't guarded against providing the wrong primitive type for the column
 export default function CreateStore(initialState: Store) {
 
     const tableSubscriptions: Record<TableName, Subscribe[]> = {};
     const rowSubscriptions: Record<TableName, Record<PK, Subscribe[]>> = {};
+    const singleSubscriptions: Record<SingleName, ((v: any) => void)[]> = {};
     const tableKeys: Record<TableName, PK> = {};
     const ledger: string[] = [];
 
@@ -121,6 +145,7 @@ export default function CreateStore(initialState: Store) {
         return arrayProperties;
     };
 
+    // Problem is this doesn't create a copy of the original store, it makes changes to it.
     // setup the primary keys
     const store = ((initialState) => {
         for (const tName in initialState.tables) {
@@ -163,7 +188,7 @@ export default function CreateStore(initialState: Store) {
         return true;
     }
 
-    const registerTable = (tName: TableName, fn: (v: any) => void, notify: TableNotify[]) => {
+    const registerTable = (tName: TableName, fn: (v: any[]) => void, notify: TableNotify[]) => {
         if (!tableSubscriptions[tName]) {
             tableSubscriptions[tName] = [];
         }
@@ -186,9 +211,16 @@ export default function CreateStore(initialState: Store) {
             notify,
             fn,
         });
-    }
+    };
 
-    const unregisterTable = (tName: TableName, fn: (v: any) => void) => {
+    const registerSingle = (sName: SingleName, fn: (v: any) => void) => {
+        if (!singleSubscriptions[sName]) {
+            singleSubscriptions[sName] = [];
+        }
+        singleSubscriptions[sName].push(fn);
+    };
+
+    const unregisterTable = (tName: TableName, fn: (v: any[]) => void) => {
         if (tableSubscriptions[tName]) {
             tableSubscriptions[tName] = tableSubscriptions[tName].filter(d => d.fn !== fn);
         }
@@ -202,6 +234,12 @@ export default function CreateStore(initialState: Store) {
             }
         }
     };
+
+    const unregisterSingle = (sName: SingleName, fn: (v: any) => void) => {
+        if (singleSubscriptions[sName]) {
+            singleSubscriptions[sName] = singleSubscriptions[sName].filter(d => d !== fn);
+        }
+    }
 
     const notifyTableSubscribers = (ne: TableNotify, tName: TableName) => {
         if (tableSubscriptions[tName]?.length > 0) {
@@ -248,6 +286,16 @@ export default function CreateStore(initialState: Store) {
                     for (let i = 0, len = subscribers.length; i < len; i++) {
                         subscribers[i](row);
                     }
+                }
+            });
+        }
+    };
+
+    const notifySingleSubscribers = <T,>(sName: SingleName, value: T) => {
+        if (singleSubscriptions[sName]?.length > 0) {
+            new Promise(() => {
+                for (let i = 0, len = singleSubscriptions[sName].length; i < len; i++) {
+                    singleSubscriptions[sName][i](value);
                 }
             });
         }
@@ -355,24 +403,57 @@ export default function CreateStore(initialState: Store) {
     };
 
     // TODO: onDelete row should remove any listeners
-    const insertTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): boolean => {
+    const insertTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]} | Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): boolean => {
+        if (!(valueMap instanceof Array || valueMap instanceof Object)) {
+            console.log(`Error: entry is not an object or an Array of objects. Received ${typeof valueMap}`);
+            return false;
+        }
         const table = store.tables[tName];
         if (table) {
             let arrayProperties = getArrayProperties(table);
-            // confirm valueMap has all properties
-            for (let i = 0, len = arrayProperties.length; i < len; i++) {
-                if (!(arrayProperties[i] in valueMap) && arrayProperties[i] !== '_pk') {
-                    return false;
+            // Batch insert
+            if (valueMap instanceof Array) {
+                // check that all values are correct before continuing
+                for (let i = 0, len = valueMap.length; i < len; i++) {
+                    const row = valueMap[i];
+                    if (!(row instanceof Object)) {
+                        console.log(`Error: row is not an object. Received ${typeof valueMap[i]}`);
+                        return false;
+                    }
+                    // confirm valueMap has all properties
+                    for (let j = 0, len = arrayProperties.length; j < len; j++) {
+                        if (!(arrayProperties[j] in valueMap[i]) && arrayProperties[j] !== '_pk') {
+                            console.log(`Error: missing property ${arrayProperties[j]} for table ${tName}`);
+                            return false;
+                        }
+                    }
                 }
-            }
-
-            for (let i = 0, len = arrayProperties.length; i < len; i++) {
-                // Autoincrement on insert
-                if (arrayProperties[i] === '_pk') {
-                    table._pk.push(++tableKeys[tName]);
-                    continue;
+                for (let i = 0, len = valueMap.length; i < len; i++) {
+                    for (let j = 0, len = arrayProperties.length; j < len; j++) {
+                        // Autoincrement on insert
+                        if (arrayProperties[j] === '_pk') {
+                            table._pk.push(++tableKeys[tName]);
+                            continue;
+                        }
+                        table[arrayProperties[j]].push(valueMap[i][arrayProperties[j]]);
+                    }
                 }
-                table[arrayProperties[i]].push(valueMap[arrayProperties[i]]);
+            // Single insert
+            } else {
+                // confirm valueMap has all properties
+                for (let i = 0, len = arrayProperties.length; i < len; i++) {
+                    if (!(arrayProperties[i] in valueMap) && arrayProperties[i] !== '_pk') {
+                        return false;
+                    }
+                }
+                for (let i = 0, len = arrayProperties.length; i < len; i++) {
+                    // Autoincrement on insert
+                    if (arrayProperties[i] === '_pk') {
+                        table._pk.push(++tableKeys[tName]);
+                        continue;
+                    }
+                    table[arrayProperties[i]].push(valueMap[arrayProperties[i]]);
+                }
             }
 
             notifyTableSubscribers('rowInsert', tName);
@@ -380,6 +461,7 @@ export default function CreateStore(initialState: Store) {
             // TODO: add locking
             // TODO: run triggers
             // TODO: check that all columns have the same lenght when inserting
+            // TODO: ability to undo a batch insert
             return true;
         }
         return false;
@@ -419,6 +501,16 @@ export default function CreateStore(initialState: Store) {
         return false;
     };
 
+    const setSingle = <T,>(sName: SingleName, value: T): boolean => {
+        store.singles[sName] = value;
+        notifySingleSubscribers<T>(sName, value); // we pass the value to save extra function calls within notifySingleSubscribers
+        return false;
+    };
+
+    const getSingle = <T,>(sName: SingleName): T | null => {
+        return store.singles[sName] ?? null;
+    }
+
     const deleteTableRow = (tName: TableName, pk: PK): boolean => {
         const table = store.tables[tName];
         if (table) {
@@ -431,8 +523,8 @@ export default function CreateStore(initialState: Store) {
             }
             if (idx >= 0) {
                 let arrayProperties = getArrayProperties(store.tables[tName]);
-                for (const k in arrayProperties) {
-                    table[arrayProperties[k]].splice(idx, 1);
+                for (const k of arrayProperties) {
+                    table[k].splice(idx, 1);
                 }
                 notifyRowSubscribers('rowDelete', tName, pk);
                 notifyTableSubscribers('rowDelete', tName);
@@ -441,6 +533,27 @@ export default function CreateStore(initialState: Store) {
         }
         return false;
     };
+
+    // TODO: this is a pretty expensive operation
+    const clearTable = (tName: TableName): boolean => {
+        const table = store.tables[tName];
+        if (table) {
+            const pkeys: PK[] = [];
+            for (let i = 0, len = table._pk.length; i < len; i++) {
+                pkeys.push(table._pk[i]);
+            }
+            for (let i = 0, len = pkeys.length; i < len; i++) {
+                deleteTableRow(tName, pkeys[i]);
+            }
+            tableKeys[tName] = 0; // reset the primary key
+            // TODO: remove any subscribers
+        }
+        return false;
+    };
+
+    // TODO: the problem with this is recreating the initial state is difficult
+    // since we allow singles to be any object.
+    const resetStore = () => {}
 
     const api: API = {
         getTable,
@@ -451,21 +564,30 @@ export default function CreateStore(initialState: Store) {
         deleteTableRow,
         registerTable,
         registerRow,
+        registerSingle,
         unregisterTable,
         unregisterRow,
+        unregisterSingle,
         setError,
+        clearTable,
+        getSingle,
     };
 
     const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName, notify: TableNotify[] = []) => useTable<T>(api, t, notify);
     const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK, notify: RowNotify[] = []) => useTableRow<T>(api, t, pk, notify);
+    const useBoundSingle = <T,>(s: SingleName) => useSingle<T>(api, s);
 
     return {
         useTable: useBoundTable,
         useTableRow: useBoundTableRow,
+        useSingle: useBoundSingle,
         insertTableRow,
-        findRow,
         updateTableRow,
         deleteTableRow,
+        setSingle,
+        findRow,
+        clearTable,
+        getSingle,
     }
 };
 
