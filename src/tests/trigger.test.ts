@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import CreateStore, { Store } from '../trigger/trigger';
+import CreateStore, { Store, TriggerAPI } from '../trigger/trigger';
 
 type ModelEntry = {
     _pk: number;
@@ -16,7 +16,14 @@ type TabEntry = {
     active: boolean;
 }
 
-type MyStore = Store & {
+type ModelRef = {
+    _pk: number;
+    parentPK: number;
+    unsavedChanges: boolean;
+    isOpen: boolean;
+}
+
+interface MyStore extends Store {
     tables: {
         models: {
             _pk: Array<ModelEntry["_pk"]>;
@@ -24,6 +31,12 @@ type MyStore = Store & {
             name: Array<ModelEntry["name"]>;
             description: Array<ModelEntry["description"]>;
         };
+        modelRefs: {
+            _pk: Array<ModelRef["_pk"]>;
+            parentPK: Array<ModelRef["parentPK"]>;
+            unsavedChanges: Array<ModelRef["unsavedChanges"]>;
+            isOpen: Array<ModelRef["isOpen"]>;
+        }
         tabs: {
             _pk: Array<TabEntry["_pk"]>;
             uuid: Array<TabEntry["uuid"]>;
@@ -32,11 +45,19 @@ type MyStore = Store & {
             active: Array<TabEntry["active"]>;
         };
     };
+    triggers: {
+        models: {
+            onInsert(api: TriggerAPI, v: ModelEntry): void;
+            // onDelete: <ModelEntry>(api: TriggerAPI, v: ModelEntry) => {};
+            // onUpdate: <ModelEntry>(api: TriggerAPI, v: ModelEntry) => {};
+        };
+    };
     singles: {
         unsavedChanges?: boolean;
         count: number;
         tabs: Array<string>;
-    }
+    };
+    error: string;
 }
 
 const store: MyStore = {
@@ -47,6 +68,12 @@ const store: MyStore = {
             name: ['model1', 'model2', 'model3'],
             description: ['desc1', 'desc2', 'desc3'],
         },
+        modelRefs: {
+            _pk: [],
+            parentPK: [],
+            unsavedChanges: [],
+            isOpen: [],
+        },
         tabs: {
             _pk: [],
             uuid: ['a', 'b', 'c'],
@@ -54,6 +81,13 @@ const store: MyStore = {
             description: ['desc-a', 'desc-b', 'desc-c'],
             active: [true, false, false],
         },
+    },
+    triggers: {
+        models: {
+            onInsert: (api: TriggerAPI, v: ModelEntry) => {
+                api.insertTableRow<ModelRef>('modelRefs', { parentPK: v._pk, unsavedChanges: false, isOpen: false });
+            },
+        }
     },
     singles: {
         count: 0,
@@ -66,6 +100,7 @@ const {
     useTable,
     useTableRow,
     insertTableRow,
+    insertTableRows,
     deleteTableRow,
     updateTableRow,
     findRow,
@@ -75,10 +110,12 @@ const {
     getSingle 
 } = CreateStore(store);
 
+
+// maybe we simplify it
+
 describe('Basic operations', () => {
     test('if initial state produces proper primary keys', () => {
         const { result } = renderHook(() => useTable<ModelEntry>('models'));
-        renderHook(() => useTable<ModelEntry>('models'));
         expect(result.current.length).toBe(3);
         expect(result.current[0]._pk).toBe(1);
         expect(result.current[1]._pk).toBe(2);
@@ -95,7 +132,7 @@ describe('Basic operations', () => {
 
     it('should return null when row does not exist', () => {
         const { result } = renderHook(() => useTableRow<ModelEntry>('models', -1));
-        expect(result.current).toBe(null);
+        expect(result.current).toBeNull();
     });
 
     it('should return row when it exists', () => {
@@ -108,7 +145,7 @@ describe('Basic operations', () => {
         act(() => {
             deleteTableRow('models', 1);
         })
-        expect(result.current).toBe(null);
+        expect(result.current).toBeNull();
     });
 
     it('should return updated values when a row is updated', () => {
@@ -120,7 +157,7 @@ describe('Basic operations', () => {
     });
 
     it('should update the table when a row is changed', () => {
-        const { result } = renderHook(() => useTable<ModelEntry>('models', ['rowUpdate']));
+        const { result } = renderHook(() => useTable<ModelEntry>('models', null, ['rowUpdate']));
         act(() => {
             updateTableRow('models', 2, { name: 'updatedNameAgain' });
         });
@@ -129,7 +166,7 @@ describe('Basic operations', () => {
     });
 
     it('should not update the table when a row is changed', () => {
-        const { result } = renderHook(() => useTable<ModelEntry>('models', ['rowDelete', 'rowInsert']));
+        const { result } = renderHook(() => useTable<ModelEntry>('models', null, ['rowDelete', 'rowInsert']));
         act(() => {
             updateTableRow('models', 2, { name: 'updatedNameToNewValue' });
         });
@@ -138,7 +175,7 @@ describe('Basic operations', () => {
     });
 
     it('should clear the table and reset the index', () => {
-        const { result } = renderHook(() => useTable<ModelEntry>('models', []));
+        const { result } = renderHook(() => useTable<ModelEntry>('models', null, []));
         act(() => {
             clearTable('models');
         });
@@ -146,14 +183,14 @@ describe('Basic operations', () => {
     });
 
     it('should batch insert three rows', () => {
-        const { result } = renderHook(() => useTable<ModelEntry>('models', []));
+        const { result } = renderHook(() => useTable<ModelEntry>('models', null, []));
         act(() => {
             const rows = [
                 { uuid: 'model-1', name: 'name-1', description: 'desc-1', },
                 { uuid: 'model-2', name: 'name-2', description: 'desc-2', },
-                { uuid: 'model-2', name: 'name-3', description: 'desc-3', },
+                { uuid: 'model-3', name: 'name-3', description: 'desc-3', },
             ]
-            insertTableRow<ModelEntry>('models', rows);
+            insertTableRows<ModelEntry>('models', rows);
         });
         expect(result.current.length).toBe(3);
         expect(result.current[2].name).toBe('name-3');
@@ -189,19 +226,47 @@ describe('Basic operations', () => {
 
     it('should return false if inserting rows that are not objects', () => {
         const x: any = undefined;
-        let resultA: boolean = true;
-        let resultB: boolean = true;
-        let resultC: boolean = true;
-        act(() => {
-            resultA = insertTableRow<any>('models', []); // empty array returns true
-            resultB = insertTableRow<any>('models', x as Object);
-            resultC = insertTableRow<any>('models', [null, undefined, [undefined]]);
-        });
-        expect(resultA).toBe(true);
-        expect(resultB).toBe(false);
-        expect(resultC).toBe(false);
+        const resultA = insertTableRow<any>('models', []);
+        const resultB = insertTableRow<any>('models', x as Object);
+        const resultC = insertTableRows<any>('models', [{}, [], [undefined]]);
+        expect(resultA).toBeNull();
+        expect(resultB).toBeNull();
+        expect(resultC).toEqual([]);
     });
 
+    it('should return the found row, or null if not found', () => {
+        const { result: resultA } = renderHook(() => findRow<ModelEntry>('models', { name: 'name-3' }));
+        const { result: resultB } = renderHook(() => findRow<ModelEntry>('models', { name: 'name-2', description: 'desc-2' }));
+        const { result: resultC } = renderHook(() => findRow<ModelEntry>('models', { name: 'name-10' }));
+        expect(resultA.current?.name).toBe('name-3');
+        expect(resultB.current?.description).toBe('desc-2');
+        expect(resultC.current).toBeNull();
+    });
+
+    it('should use the trigger to add an entry to modelRefs', () => {
+        const { result } = renderHook(() => insertTableRow<ModelEntry>('models', { uuid: 'model-4', name: 'name-4', description: 'desc-4' }));
+        const { result: resultFindRef } = renderHook(() => findRow<ModelRef>('modelRefs', { parentPK: result?.current?._pk }));
+        
+        expect(result.current).toBeDefined();
+        expect(result.current?.uuid).toBe('model-4');
+        expect(resultFindRef.current).toBeDefined();
+        expect(resultFindRef.current?.parentPK).toBe(result.current?._pk);
+    })
+
+    it('should only return table rows where the model name is greater than 4', () => {
+        const { result } = renderHook(() => useTable<ModelEntry>('models', (v: ModelEntry) => parseInt(v.name[v.name.length-1]) >= 3)); 
+        expect(result.current.length).toBe(2);
+        expect(result.current?.[0].name).toBe('name-3');
+    });
+
+    it('should update the returned values based on the filter', () => {
+        const { result } = renderHook(() => useTable<ModelEntry>('models', (v: ModelEntry) => parseInt(v.name[v.name.length-1]) >= 3)); 
+        act(() => {
+            insertTableRow<ModelEntry>('models', { uuid: 'model-4', name: 'name-9', description: 'desc-4' });
+        });
+        expect(result.current.length).toBe(3);
+        expect(result.current?.[2].name).toBe('name-9');
+    });
 });
 
 // We do not need to render the component: https://www.toptal.com/react/testing-react-hooks-tutorial
@@ -217,4 +282,4 @@ describe('Basic operations', () => {
 // TODO: ability to reset the entire store (this will be difficult)
 // TODO: create responsive queries? (e.g., select from x where)
 
-// THOUGHTS: may want to consider using setTableRow() as a way to both INSERT and UPDATE?
+// THOUGHTS: may want to consider using upsertTableRow() as a way to both INSERT and UPDATE?

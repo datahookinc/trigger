@@ -14,6 +14,88 @@ type RowNotify = 'rowUpdate' | 'rowDelete';
  * - rowUpdate
 */
 type Notify = TableNotify | RowNotify;
+
+/** Trigger is a union of the available triggers for a table
+ * - onDelete
+ * - onUpdate
+ * - onInsert
+ */
+type Trigger = 'onDelete' | 'onUpdate' | 'onInsert';
+
+/*
+    If you specify FOR EACH ROW,
+    the trigger fires once for each row of the table that is affected by the triggering statement.
+    The absence of the FOR EACH ROW option means that the trigger fires only once
+    for each applicable statement, but not separately for each row affected by the statement.
+
+
+    For example, you define the following trigger:
+
+    CREATE TRIGGER log_salary_increase
+    AFTER UPDATE ON emp
+    FOR EACH ROW
+    WHEN (new.sal > 1000)
+    BEGIN
+        INSERT INTO emp_log (emp_id, log_date, new_salary, action)
+        VALUES (:new.empno, SYSDATE, :new.sal, 'NEW SAL');
+    END;
+    and then issue the SQL statement:
+
+    UPDATE emp SET sal = sal + 1000.0
+        WHERE deptno = 20;
+    If there are five employees in department 20, the trigger will fire five times when this statement is issued, since five rows are affected.
+
+    The following trigger fires only once for each UPDATE of the EMP table:
+
+    CREATE TRIGGER log_emp_update
+    AFTER UPDATE ON emp
+    BEGIN
+        INSERT INTO emp_log (log_date, action)
+            VALUES (SYSDATE, 'EMP COMMISSIONS CHANGED');
+    END;
+
+    A trigger fired by an INSERT statement has meaningful access to new column values only. Because the row is being created by the INSERT, the old values are null.
+    A trigger fired by an UPDATE statement has access to both old and new column values for both BEFORE and AFTER row triggers.
+    A trigger fired by a DELETE statement has meaningful access to old column values only. Because the row will no longer exist after the row is deleted, the new values are null.
+
+    Old and new values are available in both BEFORE and AFTER row triggers. A NEW column value can be assigned in a BEFORE row trigger, but not in an AFTER row trigger (because the triggering statement takes effect before an AFTER row trigger is fired). If a BEFORE row trigger changes the value of NEW.COLUMN, an AFTER row trigger fired by the same statement sees the change assigned by the BEFORE row trigger.
+
+    BEFORE INSERT (can change "new")
+    BEFORE UPDATE (can change "new")
+    BEFORE DELETE
+    AFTER INSERT
+    AFTER UPDATE
+    AFTER DELETE
+
+    BEFORE INSERT FOR EACH ROW
+    BEFORE UPDATE FOR EACH ROW
+    BEFORE DELETE FOR EACH ROW
+
+    onBeforeInsert
+    onAfterInsert
+    onBeforeUpdate
+    onAfterUpdate
+    onBeforeDelete
+    onAfterDelete
+    onBeforeInsertEachRow
+    onAfterInsertEachRow
+    onBeforeUpdateEachRow
+    onAfterUpdateEachRow
+    onBeforeDeleteEachRow
+    onAfterDeleteEachRow
+
+    // How Postgres retturns updated rows
+    UPDATE birthdays
+    SET age = date_part('year', age(birthday))
+    WHERE date_part('year', age(birthday)) != age 
+    RETURNING name, birthday, age;
+
+    https://docs.oracle.com/cd/A58617_01/server.804/a58241/ch9.htm#:~:text=If%20you%20specify%20FOR%20EACH,row%20affected%20by%20the%20statement.
+
+    // THOUGHTS: may want to consider using upsertTableRow() as a way to both INSERT and UPDATE?
+
+*/
+
 type Subscribe = {
     notify: Notify[];
     fn(v: any): void;
@@ -21,17 +103,15 @@ type Subscribe = {
 
 export type AllowedPrimitives = string | number | boolean | null;
 
-// Note: triggers should happen BEFORE the change; notifications should happen AFTER the change
+// Note: triggers should happen BEFORE the change; Lnotifications should happen AFTER the change
 export type Table = {[index: string]: Array<AllowedPrimitives>} & {
     /** The numbers you enter are quite in-con-sequential (Dr. Evil); the engine will assign them for you */
     _pk: Array<PK>;
-    onDelete?: (() => void);
-    onInsert?: (() => void);
-    onUpdate?: (() => void);
 }; // tables hold arrays, or trigger functions
 
-export type Store = {
+export interface Store {
     tables: {[index: string]: Table};
+    triggers?: Record<TableName, {[Property in Trigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves)
     singles: {[index: string]: any};
     error: string;
 }
@@ -45,17 +125,29 @@ type API = {
     unregisterSingle(sName: SingleName, fn: (v: any) => void): void;
     getTable<T extends Record<string, AllowedPrimitives>>(t: TableName): T[];
     getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | null;
-    findRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: Record<string, AllowedPrimitives>): T | null;
+    findRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null;
     setError(e: string): void;
-    insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: T): boolean;
+    insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null;
+    insertTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[];
     updateTableRow<T extends Record<string, AllowedPrimitives>>(tName: TableName, pk: PK, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} ): boolean;
     deleteTableRow(tName: TableName, pk: PK): boolean;
     clearTable(tName: TableName): boolean;
     getSingle<T,>(sName: SingleName): T | null;
 }
 
-function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, notify: TableNotify[] = [] ): T[] {
-    const [v, setV] = useState<T[]>(() => api.getTable<T>(t)); // set initial value
+export type TriggerAPI = {
+    getTable: API["getTable"];
+    getTableRow: API["getTableRow"];
+    findRow: API["findRow"];
+    insertTableRow: API["insertTableRow"];
+    updateTableRow: API["updateTableRow"];
+    deleteTableRow: API["deleteTableRow"];
+    clearTable: API["clearTable"];
+    getSingle: API["getSingle"];
+}
+
+function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, where: ((v: T) => boolean) | null, notify: TableNotify[] = [] ): T[] {
+    const [v, setV] = useState<T[]>(() => where ? api.getTable<T>(t).filter(where) : api.getTable<T>(t)); // set initial value
 
     const registered = useRef<null | ((v: T[]) => void)>(null);
 
@@ -70,7 +162,11 @@ function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: Tabl
 
     if (registered.current === null) {
         const subscribe = (v: T[]) => {
-            setV(v);
+            if (where) {
+                setV(v.filter(where));
+            } else {
+                setV(v);
+            }
         };
         registered.current = subscribe;
         api.registerTable(t, subscribe, notify);
@@ -126,13 +222,18 @@ function useSingle<T>(api: API, sName: string): T | null {
 }
 
 // THOUGHTS: when creating the store, the user could pass a properties object with instructions like enforcing unique column values
-// THOUGHTS: we haven't guarded against providing the wrong primitive type for the column
+// THOUGHTS: we haven't guarded against providing the wrong primitive type for the column (other than the TypeScript guards)
 export default function CreateStore(initialState: Store) {
+
+    /**** */
+    // TODO: wrap trigger functions in TriggerAPI
+    /**** */
 
     const tableSubscriptions: Record<TableName, Subscribe[]> = {};
     const rowSubscriptions: Record<TableName, Record<PK, Subscribe[]>> = {};
     const singleSubscriptions: Record<SingleName, ((v: any) => void)[]> = {};
     const tableKeys: Record<TableName, PK> = {};
+    const tableTriggers: Record<TableName, {[Property in Trigger]?: ((api: TriggerAPI, v: any) => void)}> = {};
     const ledger: string[] = [];
 
     const getArrayProperties = (t: Table): string[] => {
@@ -145,7 +246,7 @@ export default function CreateStore(initialState: Store) {
         return arrayProperties;
     };
 
-    // Problem is this doesn't create a copy of the original store, it makes changes to it.
+    // Note: this doesn't create a copy of the original store, it makes changes to it.
     // setup the primary keys
     const store = ((initialState) => {
         for (const tName in initialState.tables) {
@@ -160,6 +261,23 @@ export default function CreateStore(initialState: Store) {
                 }
             }
             tableKeys[tName] = i; // will be 0 if no rows are inserted, but the first row will be designated as 1
+        }
+        
+        // Attach triggers if user has provided them
+        for (const tName in initialState.triggers) {
+            for (const trigger in initialState.triggers[tName]) {
+                // If the table is valid and the trigger is valid we add it to our triggers
+                if (tName in initialState.tables && (trigger === 'onInsert' || trigger === 'onUpdate' || trigger === 'onDelete')) {
+                    // here in case trigger is passed as undefined
+                    if (!initialState.triggers[tName][trigger]) {
+                        continue;
+                    }
+                    if (!tableTriggers[tName]) {
+                        tableTriggers[tName] = {};
+                    }
+                    tableTriggers[tName][trigger] = initialState.triggers[tName][trigger];
+                }
+            }
         }
         return initialState;
     })(initialState);
@@ -257,7 +375,7 @@ export default function CreateStore(initialState: Store) {
                     }
                 }
                 if (subscribers.length > 0) {
-                    const rows = getTable(tName);
+                    const rows = getTable(tName); // THOUGHTS: One of the downsides is we end-up creating a lot of objects each time the table changes
                     for (let i = 0, len = subscribers.length; i < len; i++) {
                         subscribers[i](rows);
                     }
@@ -330,7 +448,9 @@ export default function CreateStore(initialState: Store) {
         return [];
     };
 
-    const findRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: Record<string, AllowedPrimitives>): T | null => {
+    // TODO: ability to pass a function instead of a value map
+    // TODO: findRows function to find more than one row
+    const findRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null => {
         const table = store.tables[tName];
         if (table) {
             const numRows = getTableRowCount(table);
@@ -338,11 +458,11 @@ export default function CreateStore(initialState: Store) {
                 const arrayProperties = getArrayProperties(table);
                 let idx = -1;
                 const keys = Object.keys(where);
-                if (keys.length > 0) {
+                if (keys.length === 0) {
                     return null;
                 } else {
                     // make sure the requested columns exist in the table; if they don't all exist, return null
-                    for (const k in keys) {
+                    for (const k of keys) {
                         if (!arrayProperties.includes(k)) {
                             return null;
                         }
@@ -350,7 +470,7 @@ export default function CreateStore(initialState: Store) {
                     // loop through the rows until we find a matching index, returns the first match if any
                     for (let i = 0, len = numRows; i < len; i++) {
                         let allMatch = true;
-                        for (const k in keys) {
+                        for (const k of keys) {
                             if (where[k] !== table[k][i]) {
                                 allMatch = false;
                                 break;
@@ -363,8 +483,9 @@ export default function CreateStore(initialState: Store) {
                     }
                     if (idx >= 0) {
                         // build the appropriate entry
+                        // THOUGHTS: we could likely use a utility function for this (pass the index and build an object from the values)
                         let entry: Record<string, AllowedPrimitives> = {}
-                        for (const k in keys) {
+                        for (const k of arrayProperties) {
                             entry[k] = table[k][idx];
                         }
                         return entry as T;
@@ -402,69 +523,87 @@ export default function CreateStore(initialState: Store) {
         return null;
     };
 
-    // TODO: onDelete row should remove any listeners
-    const insertTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]} | Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): boolean => {
-        if (!(valueMap instanceof Array || valueMap instanceof Object)) {
+    // internal function that the externally exposed insertTableRow() and insertTableRows() functions  call for adding entries to a table
+    const _insertTableRow  = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, table: Table, tableProps: string[], valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T => {
+        const insertTrigger = tableTriggers[tName]?.['onInsert']
+        const entry: Record<string, AllowedPrimitives> = {}
+        for (let i = 0, len = tableProps.length; i < len; i++) {
+            // Autoincrement on insert
+            if (tableProps[i] === '_pk') {
+                table._pk.push(++tableKeys[tName]);
+                entry["_pk"] = tableKeys[tName];
+                continue;
+            }
+            table[tableProps[i]].push(valueMap[tableProps[i]]);
+            entry[tableProps[i]] = valueMap[tableProps[i]];
+        }
+        if (insertTrigger) {
+            insertTrigger(api, entry);
+        }
+        return entry as T;
+        // TODO: add entry to the _ledger
+        // TODO: add locking
+        // TODO: run triggers
+        // TODO: check that all columns have the same lenght when inserting
+        // TODO: ability to undo a batch insert
+    }
+
+    // insertTableRow is used for adding an individual row. Any notifications are fired immediately.
+    const insertTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null => {
+        if (!(valueMap instanceof Object)) {
             console.log(`Error: entry is not an object or an Array of objects. Received ${typeof valueMap}`);
-            return false;
+            return null;
         }
         const table = store.tables[tName];
         if (table) {
             let arrayProperties = getArrayProperties(table);
-            // Batch insert
-            if (valueMap instanceof Array) {
-                // check that all values are correct before continuing
-                for (let i = 0, len = valueMap.length; i < len; i++) {
-                    const row = valueMap[i];
-                    if (!(row instanceof Object)) {
-                        console.log(`Error: row is not an object. Received ${typeof valueMap[i]}`);
-                        return false;
-                    }
-                    // confirm valueMap has all properties
-                    for (let j = 0, len = arrayProperties.length; j < len; j++) {
-                        if (!(arrayProperties[j] in valueMap[i]) && arrayProperties[j] !== '_pk') {
-                            console.log(`Error: missing property ${arrayProperties[j]} for table ${tName}`);
-                            return false;
-                        }
-                    }
-                }
-                for (let i = 0, len = valueMap.length; i < len; i++) {
-                    for (let j = 0, len = arrayProperties.length; j < len; j++) {
-                        // Autoincrement on insert
-                        if (arrayProperties[j] === '_pk') {
-                            table._pk.push(++tableKeys[tName]);
-                            continue;
-                        }
-                        table[arrayProperties[j]].push(valueMap[i][arrayProperties[j]]);
-                    }
-                }
-            // Single insert
-            } else {
-                // confirm valueMap has all properties
-                for (let i = 0, len = arrayProperties.length; i < len; i++) {
-                    if (!(arrayProperties[i] in valueMap) && arrayProperties[i] !== '_pk') {
-                        return false;
-                    }
-                }
-                for (let i = 0, len = arrayProperties.length; i < len; i++) {
-                    // Autoincrement on insert
-                    if (arrayProperties[i] === '_pk') {
-                        table._pk.push(++tableKeys[tName]);
-                        continue;
-                    }
-                    table[arrayProperties[i]].push(valueMap[arrayProperties[i]]);
+            // confirm valueMap has all properties
+            for (let i = 0, len = arrayProperties.length; i < len; i++) {
+                if (!(arrayProperties[i] in valueMap) && arrayProperties[i] !== '_pk') {
+                    return null;
                 }
             }
-
+            const entry = _insertTableRow<T>(tName, table, arrayProperties, valueMap);
             notifyTableSubscribers('rowInsert', tName);
-            // TODO: add entry to the _ledger
-            // TODO: add locking
-            // TODO: run triggers
-            // TODO: check that all columns have the same lenght when inserting
-            // TODO: ability to undo a batch insert
-            return true;
+            return entry as T;
         }
-        return false;
+        return null;
+    };
+
+    // insertTableRows is used for adding multiple rows. Any notifications are fired after all rows have been added.
+    // TODO: triggers will cause notifications to fire even though the main batch will only have a single trigger, not sure how to handle this?
+    // THOUGHTS: not sure building these objects and sending them back is worth it? It may make more sense to just send back the keys that have been added
+    const insertTableRows = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[] => {
+        if (!(valueMap instanceof Array)) {
+            console.log(`Error: entry is not an Array of objects. Received ${typeof valueMap}`);
+            return [];
+        }
+        const table = store.tables[tName];
+        if (table) {
+            let arrayProperties = getArrayProperties(table);
+            // check that all values are correct before continuing
+            for (let i = 0, len = valueMap.length; i < len; i++) {
+                const row = valueMap[i];
+                if (!(row instanceof Object)) {
+                    console.log(`Error: row is not an object. Received ${typeof valueMap[i]}`);
+                    return [];
+                }
+                // confirm valueMap has all properties
+                for (let j = 0, len = arrayProperties.length; j < len; j++) {
+                    if (!(arrayProperties[j] in valueMap[i]) && arrayProperties[j] !== '_pk') {
+                        console.log(`Error: missing property ${arrayProperties[j]} for table ${tName}`);
+                        return [];
+                    }
+                }
+            }
+            const entries: T[] = [];
+            for (let i = 0, len = valueMap.length; i < len; i++) {
+                entries.push(_insertTableRow<T>(tName, table, arrayProperties, valueMap[i]))
+            }
+            notifyTableSubscribers('rowInsert', tName);
+            return entries;
+        }
+        return [];
     };
     
     // TODO: this does not protect the column types
@@ -511,6 +650,7 @@ export default function CreateStore(initialState: Store) {
         return store.singles[sName] ?? null;
     }
 
+    // TODO: onDelete should remove listeners
     const deleteTableRow = (tName: TableName, pk: PK): boolean => {
         const table = store.tables[tName];
         if (table) {
@@ -560,6 +700,7 @@ export default function CreateStore(initialState: Store) {
         getTableRow,
         findRow,
         insertTableRow,
+        insertTableRows,
         updateTableRow,
         deleteTableRow,
         registerTable,
@@ -573,7 +714,7 @@ export default function CreateStore(initialState: Store) {
         getSingle,
     };
 
-    const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName, notify: TableNotify[] = []) => useTable<T>(api, t, notify);
+    const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName, where: ((v: T) => boolean) | null = null, notify: TableNotify[] = []) => useTable<T>(api, t, where, notify);
     const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK, notify: RowNotify[] = []) => useTableRow<T>(api, t, pk, notify);
     const useBoundSingle = <T,>(s: SingleName) => useSingle<T>(api, s);
 
@@ -582,6 +723,7 @@ export default function CreateStore(initialState: Store) {
         useTableRow: useBoundTableRow,
         useSingle: useBoundSingle,
         insertTableRow,
+        insertTableRows,
         updateTableRow,
         deleteTableRow,
         setSingle,
