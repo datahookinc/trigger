@@ -103,19 +103,16 @@ const {
     insertTableRows,
     deleteTableRow,
     updateTableRow,
-    findRow,
+    findTableRow,
     clearTable,
     useSingle,
     setSingle,
     getSingle 
 } = CreateStore(store);
 
-
-// maybe we simplify it
-
 describe('Basic operations', () => {
     test('if initial state produces proper primary keys', () => {
-        const { result } = renderHook(() => useTable<ModelEntry>('models'));
+        const { result } = renderHook(() => useTable<ModelEntry>('models', null));
         expect(result.current.length).toBe(3);
         expect(result.current[0]._pk).toBe(1);
         expect(result.current[1]._pk).toBe(2);
@@ -196,6 +193,11 @@ describe('Basic operations', () => {
         expect(result.current[2].name).toBe('name-3');
     });
 
+    it('should return an empty array when the insert array is empty', () => {
+        const entries = insertTableRows<ModelEntry>('models', []);
+        expect(entries.length).toBe(0);
+    });
+
     it('should return null when the single value has not been set', () => {
         const { result } = renderHook(() => useSingle<boolean>('unsavedChanges'));
         expect(result.current).toBe(null);
@@ -235,9 +237,9 @@ describe('Basic operations', () => {
     });
 
     it('should return the found row, or null if not found', () => {
-        const { result: resultA } = renderHook(() => findRow<ModelEntry>('models', { name: 'name-3' }));
-        const { result: resultB } = renderHook(() => findRow<ModelEntry>('models', { name: 'name-2', description: 'desc-2' }));
-        const { result: resultC } = renderHook(() => findRow<ModelEntry>('models', { name: 'name-10' }));
+        const { result: resultA } = renderHook(() => findTableRow<ModelEntry>('models', { name: 'name-3' }));
+        const { result: resultB } = renderHook(() => findTableRow<ModelEntry>('models', { name: 'name-2', description: 'desc-2' }));
+        const { result: resultC } = renderHook(() => findTableRow<ModelEntry>('models', { name: 'name-10' }));
         expect(resultA.current?.name).toBe('name-3');
         expect(resultB.current?.description).toBe('desc-2');
         expect(resultC.current).toBeNull();
@@ -245,7 +247,7 @@ describe('Basic operations', () => {
 
     it('should use the trigger to add an entry to modelRefs', () => {
         const { result } = renderHook(() => insertTableRow<ModelEntry>('models', { uuid: 'model-4', name: 'name-4', description: 'desc-4' }));
-        const { result: resultFindRef } = renderHook(() => findRow<ModelRef>('modelRefs', { parentPK: result?.current?._pk }));
+        const { result: resultFindRef } = renderHook(() => findTableRow<ModelRef>('modelRefs', { parentPK: result?.current?._pk }));
         
         expect(result.current).toBeDefined();
         expect(result.current?.uuid).toBe('model-4');

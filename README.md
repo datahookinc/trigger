@@ -1,46 +1,70 @@
-# Getting Started with Create React App
+# Implementatation thoughts
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+    If you specify FOR EACH ROW,
+    the trigger fires once for each row of the table that is affected by the triggering statement.
+    The absence of the FOR EACH ROW option means that the trigger fires only once
+    for each applicable statement, but not separately for each row affected by the statement.
 
-## Available Scripts
 
-In the project directory, you can run:
+    For example, you define the following trigger:
 
-### `npm start`
+    CREATE TRIGGER log_salary_increase
+    AFTER UPDATE ON emp
+    FOR EACH ROW
+    WHEN (new.sal > 1000)
+    BEGIN
+        INSERT INTO emp_log (emp_id, log_date, new_salary, action)
+        VALUES (:new.empno, SYSDATE, :new.sal, 'NEW SAL');
+    END;
+    and then issue the SQL statement:
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+    UPDATE emp SET sal = sal + 1000.0
+        WHERE deptno = 20;
+    If there are five employees in department 20, the trigger will fire five times when this statement is issued, since five rows are affected.
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+    The following trigger fires only once for each UPDATE of the EMP table:
 
-### `npm test`
+    CREATE TRIGGER log_emp_update
+    AFTER UPDATE ON emp
+    BEGIN
+        INSERT INTO emp_log (log_date, action)
+            VALUES (SYSDATE, 'EMP COMMISSIONS CHANGED');
+    END;
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+    A trigger fired by an INSERT statement has meaningful access to new column values only. Because the row is being created by the INSERT, the old values are null.
+    A trigger fired by an UPDATE statement has access to both old and new column values for both BEFORE and AFTER row triggers.
+    A trigger fired by a DELETE statement has meaningful access to old column values only. Because the row will no longer exist after the row is deleted, the new values are null.
 
-### `npm run build`
+    Old and new values are available in both BEFORE and AFTER row triggers. A NEW column value can be assigned in a BEFORE row trigger, but not in an AFTER row trigger (because the triggering statement takes effect before an AFTER row trigger is fired). If a BEFORE row trigger changes the value of NEW.COLUMN, an AFTER row trigger fired by the same statement sees the change assigned by the BEFORE row trigger.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+    BEFORE INSERT (can change "new")
+    BEFORE UPDATE (can change "new")
+    BEFORE DELETE
+    AFTER INSERT
+    AFTER UPDATE
+    AFTER DELETE
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+    BEFORE INSERT FOR EACH ROW
+    BEFORE UPDATE FOR EACH ROW
+    BEFORE DELETE FOR EACH ROW
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+    onBeforeInsert
+    onAfterInsert
+    onBeforeUpdate
+    onAfterUpdate
+    onBeforeDelete
+    onAfterDelete
+    onBeforeInsertEachRow
+    onAfterInsertEachRow
+    onBeforeUpdateEachRow
+    onAfterUpdateEachRow
+    onBeforeDeleteEachRow
+    onAfterDeleteEachRow
 
-### `npm run eject`
+    // How Postgres returns updated rows
+    UPDATE birthdays
+    SET age = date_part('year', age(birthday))
+    WHERE date_part('year', age(birthday)) != age 
+    RETURNING name, birthday, age;
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
-
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
-
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+    https://docs.oracle.com/cd/A58617_01/server.804/a58241/ch9.htm#:~:text=If%20you%20specify%20FOR%20EACH,row%20affected%20by%20the%20statement.

@@ -22,80 +22,6 @@ type Notify = TableNotify | RowNotify;
  */
 type Trigger = 'onDelete' | 'onUpdate' | 'onInsert';
 
-/*
-    If you specify FOR EACH ROW,
-    the trigger fires once for each row of the table that is affected by the triggering statement.
-    The absence of the FOR EACH ROW option means that the trigger fires only once
-    for each applicable statement, but not separately for each row affected by the statement.
-
-
-    For example, you define the following trigger:
-
-    CREATE TRIGGER log_salary_increase
-    AFTER UPDATE ON emp
-    FOR EACH ROW
-    WHEN (new.sal > 1000)
-    BEGIN
-        INSERT INTO emp_log (emp_id, log_date, new_salary, action)
-        VALUES (:new.empno, SYSDATE, :new.sal, 'NEW SAL');
-    END;
-    and then issue the SQL statement:
-
-    UPDATE emp SET sal = sal + 1000.0
-        WHERE deptno = 20;
-    If there are five employees in department 20, the trigger will fire five times when this statement is issued, since five rows are affected.
-
-    The following trigger fires only once for each UPDATE of the EMP table:
-
-    CREATE TRIGGER log_emp_update
-    AFTER UPDATE ON emp
-    BEGIN
-        INSERT INTO emp_log (log_date, action)
-            VALUES (SYSDATE, 'EMP COMMISSIONS CHANGED');
-    END;
-
-    A trigger fired by an INSERT statement has meaningful access to new column values only. Because the row is being created by the INSERT, the old values are null.
-    A trigger fired by an UPDATE statement has access to both old and new column values for both BEFORE and AFTER row triggers.
-    A trigger fired by a DELETE statement has meaningful access to old column values only. Because the row will no longer exist after the row is deleted, the new values are null.
-
-    Old and new values are available in both BEFORE and AFTER row triggers. A NEW column value can be assigned in a BEFORE row trigger, but not in an AFTER row trigger (because the triggering statement takes effect before an AFTER row trigger is fired). If a BEFORE row trigger changes the value of NEW.COLUMN, an AFTER row trigger fired by the same statement sees the change assigned by the BEFORE row trigger.
-
-    BEFORE INSERT (can change "new")
-    BEFORE UPDATE (can change "new")
-    BEFORE DELETE
-    AFTER INSERT
-    AFTER UPDATE
-    AFTER DELETE
-
-    BEFORE INSERT FOR EACH ROW
-    BEFORE UPDATE FOR EACH ROW
-    BEFORE DELETE FOR EACH ROW
-
-    onBeforeInsert
-    onAfterInsert
-    onBeforeUpdate
-    onAfterUpdate
-    onBeforeDelete
-    onAfterDelete
-    onBeforeInsertEachRow
-    onAfterInsertEachRow
-    onBeforeUpdateEachRow
-    onAfterUpdateEachRow
-    onBeforeDeleteEachRow
-    onAfterDeleteEachRow
-
-    // How Postgres retturns updated rows
-    UPDATE birthdays
-    SET age = date_part('year', age(birthday))
-    WHERE date_part('year', age(birthday)) != age 
-    RETURNING name, birthday, age;
-
-    https://docs.oracle.com/cd/A58617_01/server.804/a58241/ch9.htm#:~:text=If%20you%20specify%20FOR%20EACH,row%20affected%20by%20the%20statement.
-
-    // THOUGHTS: may want to consider using upsertTableRow() as a way to both INSERT and UPDATE?
-
-*/
-
 type Subscribe = {
     notify: Notify[];
     fn(v: any): void;
@@ -103,7 +29,6 @@ type Subscribe = {
 
 export type AllowedPrimitives = string | number | boolean | null;
 
-// Note: triggers should happen BEFORE the change; Lnotifications should happen AFTER the change
 export type Table = {[index: string]: Array<AllowedPrimitives>} & {
     /** The numbers you enter are quite in-con-sequential (Dr. Evil); the engine will assign them for you */
     _pk: Array<PK>;
@@ -113,6 +38,7 @@ export interface Store {
     tables: {[index: string]: Table};
     triggers?: Record<TableName, {[Property in Trigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves)
     singles: {[index: string]: any};
+
     error: string;
 }
 
@@ -125,7 +51,7 @@ type API = {
     unregisterSingle(sName: SingleName, fn: (v: any) => void): void;
     getTable<T extends Record<string, AllowedPrimitives>>(t: TableName): T[];
     getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | null;
-    findRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null;
+    findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null;
     setError(e: string): void;
     insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null;
     insertTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[];
@@ -133,12 +59,13 @@ type API = {
     deleteTableRow(tName: TableName, pk: PK): boolean;
     clearTable(tName: TableName): boolean;
     getSingle<T,>(sName: SingleName): T | null;
+    tableHasChanged<T,>(oldValues: T[], newValues: T[]): boolean;
 }
 
 export type TriggerAPI = {
     getTable: API["getTable"];
     getTableRow: API["getTableRow"];
-    findRow: API["findRow"];
+    findTableRow: API["findTableRow"];
     insertTableRow: API["insertTableRow"];
     updateTableRow: API["updateTableRow"];
     deleteTableRow: API["deleteTableRow"];
@@ -146,95 +73,90 @@ export type TriggerAPI = {
     getSingle: API["getSingle"];
 }
 
-function useTable<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, where: ((v: T) => boolean) | null, notify: TableNotify[] = [] ): T[] {
-    const [v, setV] = useState<T[]>(() => where ? api.getTable<T>(t).filter(where) : api.getTable<T>(t)); // set initial value
+function createBoundTable(api: API) {
+    return function useTable<T extends Record<string, AllowedPrimitives>>(t: TableName, where: ((v: T) => boolean) | null, notify: TableNotify[] = [] ): T[] {
+        const [v, setV] = useState<T[]>(() => where ? api.getTable<T>(t).filter(where) : api.getTable<T>(t)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
+        const hasChanged = useRef((newValues: T[]) => api.tableHasChanged(v, newValues));
+        const notifyList = useRef(notify);
+        const whereClause = useRef(where);
+        hasChanged.current = (newValues: T[]) => api.tableHasChanged(v, newValues);
 
-    const registered = useRef<null | ((v: T[]) => void)>(null);
+        useEffect(() => {
+            const subscribe = (nv: T[]) => {
+                if (whereClause.current) {
+                    // compare to see if changes effect rows this component is hooking into
+                    const filtered = nv.filter(whereClause.current);
+                    if (hasChanged.current(filtered)) {
+                        setV(nv.filter(whereClause.current));
+                    }
+                } else {
+                    setV(nv);
+                }
+            };
+            
+            api.registerTable(t, subscribe, notifyList.current);
 
-    useEffect(() => {
-        // unregister when component unmounts;
-        return () => {
-            if (registered.current) {
-                api.unregisterTable(t, registered.current);
+            // NOTE: Initialize here because of the delay between useState and useEffect which means
+            // changes could have been dispatched before this component was registered to listen for them
+            const currentTableValues = whereClause.current ? api.getTable<T>(t).filter(whereClause.current) : api.getTable<T>(t);
+            setV(currentTableValues);
+            // unregister when component unmounts;
+            return () => {
+                api.unregisterTable(t, subscribe);
             }
-        }
-    }, [api, t]);
+        }, [t]);
+        return v;
+    }
+}
 
-    if (registered.current === null) {
-        const subscribe = (v: T[]) => {
-            if (where) {
-                setV(v.filter(where));
-            } else {
+function createBoundTableRow(api: API) {
+    return function useTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: number, notify: RowNotify[] = []): T | null {
+        const [v, setV] = useState<null | T>(() => api.getTableRow<T>(t, pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        // NOTE: this is required to avoid firing useEffect when the notify object reference changes
+        const notifyList = useRef(notify);
+        
+        useEffect(() => {
+            const subscribe = (v: T) => {
                 setV(v);
+            };
+            api.registerRow(t, pk, subscribe, notifyList.current);
+            setV(api.getTableRow<T>(t, pk))
+            // unregister when component unmounts;
+            return () => {
+                api.unregisterRow(t, pk, subscribe);
             }
-        };
-        registered.current = subscribe;
-        api.registerTable(t, subscribe, notify);
+        }, [t, pk]);
+        return v;
     }
-    return v;
 }
 
-// this is the value that updated, were any subscribers interested in it?
-function useTableRow<T extends Record<string, AllowedPrimitives>>(api: API, t: TableName, pk: number, notify: RowNotify[] = []): T | null {
-    const [v, setV] = useState<null | T>(() => api.getTableRow<T>(t, pk)); // set initial value;
-    const registered = useRef<null | ((v: T) => void)>(null);
-
-    useEffect(() => {
-        // unregister when component unmounts;
-        return () => {
-            if (registered.current) {
-                api.unregisterRow(t, pk, registered.current);
+function createBoundSingle(api: API) {
+    return function useSingle<T>(sName: string): T | null {
+        const [v, setV] = useState<null | T>(() => api.getSingle<T>(sName)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        useEffect(() => {
+            const subscribe = (v: T) => {
+                setV(v);
+            };
+            api.registerSingle(sName, subscribe);
+            setV(api.getSingle<T>(sName));
+            // unregister when component unmounts;
+            return () => {
+                api.unregisterSingle(sName, subscribe);
             }
-        }
-    }, [api, t, pk]);
-
-    if (registered.current === null) {
-        const subscribe = (v: T) => {
-            setV(v);
-        };
-        registered.current = subscribe;
-        api.registerRow(t, pk, subscribe, notify); 
+        }, [sName]);
+        return v;
     }
-    return v;
 }
 
-function useSingle<T>(api: API, sName: string): T | null {
-    const [v, setV] = useState<null | T>(() => api.getSingle<T>(sName)); // set initial value
-    const registered = useRef<null | ((v: T) => void)>(null);
-
-    useEffect(() => {
-        // unregister when component unmounts;
-        return () => {
-            if (registered.current) {
-                api.unregisterSingle(sName, registered.current);
-            }
-        }
-    }, [api, sName]);
-
-    if (registered.current === null) {
-        const subscribe = (v: T) => {
-            setV(v);
-        };
-        registered.current = subscribe;
-        api.registerSingle(sName, subscribe); 
-    }
-    return v;
-}
-
-// THOUGHTS: when creating the store, the user could pass a properties object with instructions like enforcing unique column values
-// THOUGHTS: we haven't guarded against providing the wrong primitive type for the column (other than the TypeScript guards)
 export default function CreateStore(initialState: Store) {
-
-    /**** */
-    // TODO: wrap trigger functions in TriggerAPI
-    /**** */
 
     const tableSubscriptions: Record<TableName, Subscribe[]> = {};
     const rowSubscriptions: Record<TableName, Record<PK, Subscribe[]>> = {};
     const singleSubscriptions: Record<SingleName, ((v: any) => void)[]> = {};
     const tableKeys: Record<TableName, PK> = {};
     const tableTriggers: Record<TableName, {[Property in Trigger]?: ((api: TriggerAPI, v: any) => void)}> = {};
-    const ledger: string[] = [];
+    const transactionLog: string[] = [];
 
     const getArrayProperties = (t: Table): string[] => {
         const arrayProperties: string[] = [];
@@ -246,8 +168,8 @@ export default function CreateStore(initialState: Store) {
         return arrayProperties;
     };
 
-    // Note: this doesn't create a copy of the original store, it makes changes to it.
     // setup the primary keys
+    // NOTE: this doesn't create a copy of the original store, it makes changes to it.
     const store = ((initialState) => {
         for (const tName in initialState.tables) {
             let i = 0;
@@ -292,7 +214,7 @@ export default function CreateStore(initialState: Store) {
     };
 
     function arrayLengthsMatch(table: Table): boolean {
-        let l = 1;
+        let l = 0;
         const arrayProperties = getArrayProperties(table);
         for (let i = 0, len = arrayProperties.length; i < len; i++) {
             if (i === 0) {
@@ -353,6 +275,7 @@ export default function CreateStore(initialState: Store) {
         }
     };
 
+    // It seems like it might be here? My unregisters aren't working properly?
     const unregisterSingle = (sName: SingleName, fn: (v: any) => void) => {
         if (singleSubscriptions[sName]) {
             singleSubscriptions[sName] = singleSubscriptions[sName].filter(d => d !== fn);
@@ -361,61 +284,56 @@ export default function CreateStore(initialState: Store) {
 
     const notifyTableSubscribers = (ne: TableNotify, tName: TableName) => {
         if (tableSubscriptions[tName]?.length > 0) {
-            new Promise(() => {
-                const subscribers: Array<(v: any) => void> = [];
-                for (let i = 0, len = tableSubscriptions[tName].length; i < len; i++) {
-                    let subscriber = tableSubscriptions[tName][i];
-                    // empty array means they are subscribing to all events
-                    if (subscriber.notify.length === 0) {
-                        subscribers.push(subscriber.fn);
-                        continue;
-                    }
-                    if (subscriber.notify.includes(ne)) {
-                        subscribers.push(subscriber.fn);
-                    }
+            const subscribers: Array<(v: any) => void> = [];
+            // Note: there is no point in using a promise here because their bodies are executed immediately (synchronously)
+            for (let i = 0, len = tableSubscriptions[tName].length; i < len; i++) {
+                let subscriber = tableSubscriptions[tName][i];
+                // empty array means they are subscribing to all events
+                if (subscriber.notify.length === 0) {
+                    subscribers.push(subscriber.fn);
+                    continue;
                 }
-                if (subscribers.length > 0) {
-                    const rows = getTable(tName); // THOUGHTS: One of the downsides is we end-up creating a lot of objects each time the table changes
-                    for (let i = 0, len = subscribers.length; i < len; i++) {
-                        subscribers[i](rows);
-                    }
+                if (subscriber.notify.includes(ne)) {
+                    subscribers.push(subscriber.fn);
                 }
-            });
+            }
+            if (subscribers.length > 0) {
+                const rows = getTable(tName); // THOUGHTS: One of the downsides is we end-up creating a lot of objects each time the table changes
+                for (let i = 0, len = subscribers.length; i < len; i++) {
+                    subscribers[i](rows);
+                }
+            }
         }
     };
 
     const notifyRowSubscribers = (ne: RowNotify, tName: TableName, pk: PK) => {
         if (rowSubscriptions[tName]?.[pk]?.length > 0) {
-            new Promise(() => {
-                const subscribers: Array<(v: any) => void> = [];
-                for (let i = 0, len = rowSubscriptions[tName][pk].length; i < len; i++) {
-                    let subscriber = rowSubscriptions[tName][pk][i];
-                    // empty array means they are subscribing to all events
-                    if (subscriber.notify.length === 0) {
-                        subscribers.push(subscriber.fn);
-                        continue;
-                    }
-                    if (subscriber.notify.includes(ne)) {
-                        subscribers.push(subscriber.fn);
-                    }
+            const subscribers: Array<(v: any) => void> = [];
+            for (let i = 0, len = rowSubscriptions[tName][pk].length; i < len; i++) {
+                let subscriber = rowSubscriptions[tName][pk][i];
+                // empty array means they are subscribing to all events
+                if (subscriber.notify.length === 0) {
+                    subscribers.push(subscriber.fn);
+                    continue;
                 }
-                if (subscribers.length > 0) {
-                    const row = getTableRow(tName, pk);
-                    for (let i = 0, len = subscribers.length; i < len; i++) {
-                        subscribers[i](row);
-                    }
+                if (subscriber.notify.includes(ne)) {
+                    subscribers.push(subscriber.fn);
                 }
-            });
+            }
+            if (subscribers.length > 0) {
+                const row = getTableRow(tName, pk);
+                for (let i = 0, len = subscribers.length; i < len; i++) {
+                    subscribers[i](row);
+                }
+            }
         }
     };
 
     const notifySingleSubscribers = <T,>(sName: SingleName, value: T) => {
         if (singleSubscriptions[sName]?.length > 0) {
-            new Promise(() => {
-                for (let i = 0, len = singleSubscriptions[sName].length; i < len; i++) {
-                    singleSubscriptions[sName][i](value);
-                }
-            });
+            for (let i = 0, len = singleSubscriptions[sName].length; i < len; i++) {
+                singleSubscriptions[sName][i](value);
+            }
         }
     };
 
@@ -429,10 +347,6 @@ export default function CreateStore(initialState: Store) {
         if (table) {
             let arrayProperties = getArrayProperties(table);
             if (arrayProperties.length > 0) {
-                // THOUGHTS: how we can use SELECT logic to return certain columns
-                // if  (reqFields.length > 0) {
-                //     arrayProperties = arrayProperties.filter(d => reqFields.includes(d as Extract<keyof T, string>));
-                // }
                 const entries: Record<string, AllowedPrimitives>[] = [];
                 // send back the values as the requested objects
                 for (let i = 0, numValues = table[arrayProperties[i]].length; i < numValues; i++) {
@@ -448,9 +362,7 @@ export default function CreateStore(initialState: Store) {
         return [];
     };
 
-    // TODO: ability to pass a function instead of a value map
-    // TODO: findRows function to find more than one row
-    const findRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null => {
+    const findTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null => {
         const table = store.tables[tName];
         if (table) {
             const numRows = getTableRowCount(table);
@@ -483,7 +395,7 @@ export default function CreateStore(initialState: Store) {
                     }
                     if (idx >= 0) {
                         // build the appropriate entry
-                        // THOUGHTS: we could likely use a utility function for this (pass the index and build an object from the values)
+                        // ISSUE #18
                         let entry: Record<string, AllowedPrimitives> = {}
                         for (const k of arrayProperties) {
                             entry[k] = table[k][idx];
@@ -541,11 +453,6 @@ export default function CreateStore(initialState: Store) {
             insertTrigger(api, entry);
         }
         return entry as T;
-        // TODO: add entry to the _ledger
-        // TODO: add locking
-        // TODO: run triggers
-        // TODO: check that all columns have the same lenght when inserting
-        // TODO: ability to undo a batch insert
     }
 
     // insertTableRow is used for adding an individual row. Any notifications are fired immediately.
@@ -570,12 +477,22 @@ export default function CreateStore(initialState: Store) {
         return null;
     };
 
-    // insertTableRows is used for adding multiple rows. Any notifications are fired after all rows have been added.
-    // TODO: triggers will cause notifications to fire even though the main batch will only have a single trigger, not sure how to handle this?
-    // THOUGHTS: not sure building these objects and sending them back is worth it? It may make more sense to just send back the keys that have been added
+    /**
+     * Used for adding multiple rows in a single call. The notification is fired after all rows have been added; however,
+     * if a trigger is attached, then notifications could occur more frequently because of the trigger. The inserted rows are
+     * returned as an array, which can be important if triggers purposefully manipulate the values.
+     * 
+     * On error, no values are inserted and an empty array is returned
+     * @param tName Name of the table for inserting the rows
+     * @param valueMap The key:value pairings for each row
+     * @returns 
+     */
     const insertTableRows = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[] => {
         if (!(valueMap instanceof Array)) {
             console.log(`Error: entry is not an Array of objects. Received ${typeof valueMap}`);
+            return [];
+        }
+        if (valueMap.length === 0) {
             return [];
         }
         const table = store.tables[tName];
@@ -606,7 +523,6 @@ export default function CreateStore(initialState: Store) {
         return [];
     };
     
-    // TODO: this does not protect the column types
     const updateTableRow = <T extends Record<string, AllowedPrimitives>>(tName: TableName, pk: PK, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} ): boolean => {
         const table = store.tables[tName];
         if (table) {
@@ -641,16 +557,17 @@ export default function CreateStore(initialState: Store) {
     };
 
     const setSingle = <T,>(sName: SingleName, value: T): boolean => {
-        store.singles[sName] = value;
-        notifySingleSubscribers<T>(sName, value); // we pass the value to save extra function calls within notifySingleSubscribers
-        return false;
+        if (store.singles[sName] !== value) {
+            store.singles[sName] = value;
+            notifySingleSubscribers<T>(sName, value); // we pass the value to save extra function calls within notifySingleSubscribers
+        }
+        return true;
     };
 
     const getSingle = <T,>(sName: SingleName): T | null => {
         return store.singles[sName] ?? null;
     }
 
-    // TODO: onDelete should remove listeners
     const deleteTableRow = (tName: TableName, pk: PK): boolean => {
         const table = store.tables[tName];
         if (table) {
@@ -674,7 +591,6 @@ export default function CreateStore(initialState: Store) {
         return false;
     };
 
-    // TODO: this is a pretty expensive operation
     const clearTable = (tName: TableName): boolean => {
         const table = store.tables[tName];
         if (table) {
@@ -686,19 +602,30 @@ export default function CreateStore(initialState: Store) {
                 deleteTableRow(tName, pkeys[i]);
             }
             tableKeys[tName] = 0; // reset the primary key
-            // TODO: remove any subscribers
         }
         return false;
     };
 
-    // TODO: the problem with this is recreating the initial state is difficult
-    // since we allow singles to be any object.
-    const resetStore = () => {}
+    const tableHasChanged = <T,>(oldValues: T[], newValues: T[]): boolean => {
+        if (oldValues.length !== newValues.length) {
+            return true;
+        }
+        for (let i = 0, len = oldValues.length; i < len; i++) {
+            const ov = oldValues[i];
+            const nv = newValues[i];
+            for (const k in ov) {
+                if (ov[k] !== nv[k]) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
 
     const api: API = {
         getTable,
         getTableRow,
-        findRow,
+        findTableRow,
         insertTableRow,
         insertTableRows,
         updateTableRow,
@@ -712,250 +639,27 @@ export default function CreateStore(initialState: Store) {
         setError,
         clearTable,
         getSingle,
+        tableHasChanged,
     };
 
-    const useBoundTable = <T extends Record<string, AllowedPrimitives>,>(t: TableName, where: ((v: T) => boolean) | null = null, notify: TableNotify[] = []) => useTable<T>(api, t, where, notify);
-    const useBoundTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK, notify: RowNotify[] = []) => useTableRow<T>(api, t, pk, notify);
-    const useBoundSingle = <T,>(s: SingleName) => useSingle<T>(api, s);
+    // Bind the API to the hooks
+    const useTable = createBoundTable(api);
+    const useTableRow = createBoundTableRow(api);
+    const useSingle = createBoundSingle(api);
 
     return {
-        useTable: useBoundTable,
-        useTableRow: useBoundTableRow,
-        useSingle: useBoundSingle,
+        useTable,
+        useTableRow,
+        useSingle,
         insertTableRow,
         insertTableRows,
         updateTableRow,
         deleteTableRow,
         setSingle,
-        findRow,
+        findTableRow,
         clearTable,
         getSingle,
+        getTable,
+        getTableRow,
     }
 };
-
-
-
-// someTable = useTable<T: TableEntry>('models'); // this can return an empty array
-
-
-// Every table needs these actions
-// Table actions:
-// update()
-// delete()
-// insert()
-
-// triggers (run on update/insert/delete)
-// these more explicit names may help?
-// useStoreError
-// useStoreUpdate
-// useStoreInsert
-// useStoreDelete
-// useStoreTable
-// useStoreUpdateItem
-// usetStoreInsertItem
-// useStore() // when any action happens on the store
-// useUpdate() // when an update action runs on the store
-// useInsert() // when an insert action runs on the store
-// useDelete() // when a delete action runs on the store
-// useTable(store => store.tableName) // when any action runs on the table
-// useUpdate(store => store.tableName) // when an update action runs on the table
-// useInsert(store => store.tableName) // when an insert action runs on the table
-// useDelete(store => store.tableName) // when a delete action runs on the table
-// useUpdateEntry(store => store.tableName, 'primaryKey'); // returns the item
-// useDeleteEntry(store => store.tableName, 'primaryKey');
-// useCustomTable
-// useCustomItem
-// (...)
-
-// you can see why zustand uses functions because it simplifies things, instead of needing
-// all of these separate functions, but these separate functions are likely less intimidating than
-// they seem
-
-/*
-    What I need to do is flatten my model to make it easier to subscribe to events
-    as they occur, otherwise, I need to update entire chunks of my the program for no
-    reason
-*/
-
-
-/* my problem is how nested everything is, it is creating a headache when it comes to
-    updating. Like, how am I going to subscribe when a single thing updates?
-    Why not store the markup like this anyway? The models are completely separate, so
-    what benefit is there in having everything saved individually to the database?
-*/
-
-/*
-
-    // Imagine how much code I will need to re-write!! Basically all of it
-    // Yes, but you are already running into some pretty big issues with state management - how much worse will you let it get?
-
-    // MOBX seems somewhat promising, but it is not really what I am after.
-
-    // Every table needs these actions
-    // Table actions:
-    // update()
-    // delete()
-    // insert()
-
-    // const items = useTable() =>
-    // items.map(d => )
-
- 
-    // triggers (run on update/insert/delete)
-    // useStore() // when any action happens on the store
-    // useUpdate() // when an update action runs on the store
-    // useInsert() // when an insert action runs on the store
-    // useDelete() // when a delete action runs on the store
-    // useTable(store => store.tableName) // when any action runs on the table
-    // useUpdate(store => store.tableName) // when an update action runs on the table
-    // useInsert(store => store.tableName) // when an insert action runs on the table
-    // useDelete(store => store.tableName) // when a delete action runs on the table
-    // useUpdateItem(store => store.tableName, 'primaryKey'); // returns the item
-    // useInsertItem(store => store.tableName, 'primaryKey'); // returns the item's new state
-    // useDeleteItem(store => store.tableName, 'primaryKey');
-    // useUpdateItems('tableName', fn(t: TableType): TableType, []) // run the function against the values in the array. Empty array means all values. Final properties are then propagated back to the array list
-    // useTableItem('tableName', uuid);
-
-    ^
-    // How to use the store and be notified of changes?
-    // LEFT-OFF: mocking-up the API
-
-    // we can use the uuid in the application, but enforce the primary keys on insert
-    // we need to unregister our event listeners when the component unmounts
-
-    model: uuid, name, description, folder_id, owner_id, ...
-    blocks: uuid, blocktype // not sure this would be necessary, it is certainly more convenient
-    dataframeblocks: uuid, blocktype, description
-    dataframeBlockAttributes: uuid, blockUUID, (...), order?
-    (...) other block types
-    blockPositions: uuid, left, top // these are a 1-to-1 relationship, so not really necessary
-    blockSizes: uuid, width, height // these are a 1-to-1 relationship, so not really necessary
-    blockconnectors: inputUUID, outputUUID (unique composite)
-    parameters: uuid, typeUUID, name, description, isRequired
-    parameterTypes: uuid, type
-    parameterBoolean: uuid, typeUUID, parameterUUID, defaultValue
-    parameterSelect: uuid, typeUUID  parameterUUID, multiSelect, valueType, valueBinding, defaultValue
-    parameterSelectOptions: uuid, typeUUID parameterSelectUUID, optionValue, description
-    parameterFreeForm: uuid, typeUUID parameterUUID, valueType, defaultValue
-    switchBlock: uuid, blockType, description, descriptionHeight
-    switchBlockConditions: uuid, sbUUID
-    switchBlockCondition: uuid, sbUUID, source
-    switchBlockConditionConnectors: uuid, blockUUID // we don't check for null, it just isn't there
-
-
-    /*
-
-    // subscribe
-    // INSERT()
-    // DELETE()
-    // UPDATE()
-
-
-
-
-    Ok, let's say I do this, that I switch to this approach. How do I:
-
-        - subscribe to the changes I care about
-        - apply triggers to the tables?
-        - add _runtime properties?
-
-
-
-        // Here is a great example, how does this know that the block was deleted?
-        // I guess the parameter will need to subscribe to the appropriate blocks table?
-        component(blockUUID) => {
-
-            // we could have the component itself subscribe to the changes it is making
-            // this way we design for coarse and fine grain control
-            // we still keep the markup approach because I don't want to handle
-            // actual database operations for this
-
-            const blockDescription = useStore(state => ) // how do I know which block to subscribe to?
-            ^ this is the problem, how do I subscribe to notifications for a particular object in the state?
-            ^ left-off, this is my logic problem right now, subscribing to an individual entity (row) in the store
-            const changeBlockDescription = useStore(); // this piece is easy
-
-            handleUpdateDescription() {
-                changeBlockDescription(UUID);
-
-            }
-
-
-        }
-
-
-
-
-
-        type SwitchCondition = {
-        expression: Expression; // when-then expressions
-        block: null | UUID; // if incoming block is null, then this needs to be a DataTable or DataQuery
-    }
-    
-    type SwitchBlock = BlockBase & {
-        blockType: 'switch';
-        block: {
-            inputBlock: null | UUID;
-            userInterface: {
-                descriptionHeight: number;
-            };
-            conditions: SwitchCondition[];
-        };
-        runtime: {
-            _inputHandle: null | HTMLSpanElement;
-            _outputHandles: Record<UUID, HTMLSpanElement>;
-        };
-    }
-
-
-
-
-
-
-
-    ^The problem above is to now find my connectors, I need to loop through a bunch of arrays (1 
-        for each kind of block I have). This is where you apply "triggers", to the tables, similar
-        to how you would with a database
-
-    // But I have been down this path and it resulted in A LOT of boilerplate.
-
-    // Having multiple 1-to-1relationships means I need to update multiple arrays when
-    // something is added/removed
-
-
-
-    // Am I still thinking too much about the things and their properties? Making these relational
-    // isn't hard, but making them not be cumbersome is difficult
-
-
-
-    blocktype: uuid, name
-
-
-
-
-
-        type DataBlockDataFrame = DataBlockBase & {
-        blockType: 'dataFrame';
-        block: {
-            inputBlock: null | UUID;
-            query: {
-                select: DataBlockAttribute[];
-                from: UUID;
-                where: string;
-                groupBy: string;
-                having: string;
-                orderBy: string;
-                top?: number;
-            }
-        },
-        runtime: {
-            _inputHandle: null | HTMLSpanElement; 
-        }
-    }
-
-
-    // we can store nested objects and reference those if we want.
-
-
-*/

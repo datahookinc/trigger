@@ -1,7 +1,7 @@
 import { useTable, useTableRow, insertTableRow, updateTableRow, deleteTableRow, ModelEntry } from '../store/myStore';
 
 export default function MyComponent() {
-    const table = useTable<ModelEntry>('models');
+    const table = useTable<ModelEntry>('models', null, []);
     return (
         <>
             <div>This is my component</div>
