@@ -27,18 +27,17 @@ type Subscribe = {
     fn(v: any): void;
 };
 
-export type AllowedPrimitives = string | number | boolean | null;
+export type AllowedPrimitives = string | number | Date | boolean | null;
 
 export type Table = {[index: string]: Array<AllowedPrimitives>} & {
     /** The numbers you enter are quite in-con-sequential (Dr. Evil); the engine will assign them for you */
     _pk: Array<PK>;
-}; // tables hold arrays, or trigger functions
+}; // tables hold arrays
 
 export interface Store {
     tables: {[index: string]: Table};
     triggers?: Record<TableName, {[Property in Trigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves)
     singles: {[index: string]: any};
-
     error: string;
 }
 
@@ -52,6 +51,7 @@ type API = {
     getTable<T extends Record<string, AllowedPrimitives>>(t: TableName): T[];
     getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | null;
     findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null;
+    findTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T[];
     setError(e: string): void;
     insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null;
     insertTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[];
@@ -59,6 +59,7 @@ type API = {
     deleteTableRow(tName: TableName, pk: PK): boolean;
     clearTable(tName: TableName): boolean;
     getSingle<T,>(sName: SingleName): T | null;
+    setSingle<T,>(sName: SingleName, value: T): boolean;
     tableHasChanged<T,>(oldValues: T[], newValues: T[]): boolean;
 }
 
@@ -66,11 +67,13 @@ export type TriggerAPI = {
     getTable: API["getTable"];
     getTableRow: API["getTableRow"];
     findTableRow: API["findTableRow"];
+    findTableRows: API["findTableRows"];
     insertTableRow: API["insertTableRow"];
     updateTableRow: API["updateTableRow"];
     deleteTableRow: API["deleteTableRow"];
     clearTable: API["clearTable"];
     getSingle: API["getSingle"];
+    setSingle: API["setSingle"];
 }
 
 function createBoundTable(api: API) {
@@ -406,6 +409,66 @@ export default function CreateStore(initialState: Store) {
             }
         }
         return null
+    };
+
+    const findTableRows = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T[] => {
+        const table = store.tables[tName];
+        if (table) {
+            const numRows = getTableRowCount(table);
+            if (numRows > 0 ) {
+                const arrayProperties = getArrayProperties(table);
+                if (typeof where === 'function') {
+                    const entries: Record<string, AllowedPrimitives>[] = [];
+                    // loop through the rows until we find a matching index, returns the first match if any
+                    for (let i = 0, len = numRows; i < len; i++) {
+                        let entry: Record<string, AllowedPrimitives> = {}
+                        // ISSUE #18
+                        for (const k of arrayProperties) {
+                            entry[k] = table[k][i];
+                        }
+                        if (where(entry as T)) {
+                            entries.push(entry);
+                        }
+                    }
+                    return entries as T[];
+                }
+
+                if (typeof where == 'object') {
+                    const keys = Object.keys(where);
+                    if (keys.length === 0) {
+                        return [];
+                    } else {
+                        // make sure the requested columns exist in the table; if they don't all exist, return null
+                        for (const k of keys) {
+                            if (!arrayProperties.includes(k)) {
+                                return [];
+                            }
+                        }
+                        const entries: Record<string, AllowedPrimitives>[] = [];
+                        // loop through the rows looking for indexes that match
+                        for (let i = 0, len = numRows; i < len; i++) {
+                            let allMatch = true;
+                            for (const k of keys) {
+                                if (where[k] !== table[k][i]) {
+                                    allMatch = false;
+                                    break;
+                                }
+                            }
+                            if (allMatch) {
+                                // ISSUE #18
+                                let entry: Record<string, AllowedPrimitives> = {}
+                                for (const k of arrayProperties) {
+                                    entry[k] = table[k][i];
+                                }
+                                entries.push(entry);
+                            }
+                        }
+                        return entries as T[];
+                    }
+                }
+            }
+        }
+        return [];
     }
 
     // The user provides the type they are expecting to be built
@@ -626,6 +689,7 @@ export default function CreateStore(initialState: Store) {
         getTable,
         getTableRow,
         findTableRow,
+        findTableRows,
         insertTableRow,
         insertTableRows,
         updateTableRow,
@@ -639,6 +703,7 @@ export default function CreateStore(initialState: Store) {
         setError,
         clearTable,
         getSingle,
+        setSingle,
         tableHasChanged,
     };
 
@@ -657,6 +722,7 @@ export default function CreateStore(initialState: Store) {
         deleteTableRow,
         setSingle,
         findTableRow,
+        findTableRows,
         clearTable,
         getSingle,
         getTable,

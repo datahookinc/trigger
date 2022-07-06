@@ -153,6 +153,7 @@ describe('Basic operations', () => {
         expect(result.current?.name).toBe('updatedName');
     });
 
+    // LEFT-OFF HERE
     it('should update the table when a row is changed', () => {
         const { result } = renderHook(() => useTable<ModelEntry>('models', null, ['rowUpdate']));
         act(() => {
