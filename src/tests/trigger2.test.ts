@@ -226,4 +226,33 @@ describe('Testing store', () => {
         expect(result.current.length).toBe(0);
     })
 
+    it('should find the first table row when passing a function', () => {
+        const { result } = renderHook(() => findTableRow<Customer>('customers', (v: Customer) => {
+            return v.firstName === 'Billy' || v.firstName === 'Tammy';
+        }));
+        // Note: it is unwise to rely on the rows being returned in a particular order
+        expect(result.current).not.toBeNull()
+        expect(result.current!.firstName).toBe('Billy');
+    })
+
+    it('should find the first table row when passing an object', () => {
+        const { result } = renderHook(() => findTableRow<Customer>('customers', { lastName: 'McBilly'}));
+        // Note: it is unwise to rely on the rows being returned in a particular order
+        expect(result.current).not.toBeNull()
+        expect(result.current!.firstName).toBe('Billy');
+    })
+
+    it('should return null when finding a table row with non-matching function', () => {
+        const { result } = renderHook(() => findTableRow<Customer>('customers', (v: Customer) => {
+            return v.firstName === 'Teddy';
+        }));
+        expect(result.current).toBeNull();
+    })
+
+    it('should return null when finding a table row with non-matching object', () => {
+        const { result } = renderHook(() => findTableRow<Customer>('customers', { firstName: 'Teddy'}));
+        expect(result.current).toBeNull();
+    })
+
+
 });

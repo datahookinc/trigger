@@ -50,7 +50,7 @@ type API = {
     unregisterSingle(sName: SingleName, fn: (v: any) => void): void;
     getTable<T extends Record<string, AllowedPrimitives>>(t: TableName): T[];
     getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | null;
-    findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null;
+    findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | null;
     findTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T[];
     setError(e: string): void;
     insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null;
@@ -365,46 +365,68 @@ export default function CreateStore(initialState: Store) {
         return [];
     };
 
-    const findTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]}): T | null => {
+    const findTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | null => {
         const table = store.tables[tName];
         if (table) {
             const numRows = getTableRowCount(table);
             if (numRows > 0 ) {
                 const arrayProperties = getArrayProperties(table);
                 let idx = -1;
-                const keys = Object.keys(where);
-                if (keys.length === 0) {
-                    return null;
-                } else {
-                    // make sure the requested columns exist in the table; if they don't all exist, return null
-                    for (const k of keys) {
-                        if (!arrayProperties.includes(k)) {
-                            return null;
-                        }
-                    }
-                    // loop through the rows until we find a matching index, returns the first match if any
-                    for (let i = 0, len = numRows; i < len; i++) {
-                        let allMatch = true;
-                        for (const k of keys) {
-                            if (where[k] !== table[k][i]) {
-                                allMatch = false;
+                switch (typeof where) {
+                    case 'function': {
+                        // loop through the rows until we find a matching index, returns the first match if any
+                        let entry: Record<string, AllowedPrimitives> = {}
+                        for (let i = 0, len = numRows; i < len; i++) {
+                            for (const k of arrayProperties) {
+                                entry[k] = table[k][i];
+                            }
+                            if (where(entry as T)) {
+                                idx = i;
                                 break;
                             }
                         }
-                        if (allMatch) {
-                            idx = i;
-                            break;
-                        }
+                        break;
                     }
-                    if (idx >= 0) {
-                        // build the appropriate entry
-                        // ISSUE #18
-                        let entry: Record<string, AllowedPrimitives> = {}
-                        for (const k of arrayProperties) {
-                            entry[k] = table[k][idx];
+                    case 'object': {
+                        const keys = Object.keys(where);
+                        if (keys.length === 0) {
+                            return null;
+                        } else {
+                            // make sure the requested columns exist in the table; if they don't all exist, return null
+                            for (const k of keys) {
+                                if (!arrayProperties.includes(k)) {
+                                    return null;
+                                }
+                            }
+                            // loop through the rows until we find a matching index, returns the first match if any
+                            for (let i = 0, len = numRows; i < len; i++) {
+                                let allMatch = true;
+                                for (const k of keys) {
+                                    if (where[k] !== table[k][i]) {
+                                        allMatch = false;
+                                        break;
+                                    }
+                                }
+                                if (allMatch) {
+                                    idx = i;
+                                    break;
+                                }
+                            }
                         }
-                        return entry as T;
+                        break;
                     }
+                    default: {
+                        return null;
+                    }
+                }
+                if (idx >= 0) {
+                    // build the appropriate entry
+                    // ISSUE #18
+                    let entry: Record<string, AllowedPrimitives> = {}
+                    for (const k of arrayProperties) {
+                        entry[k] = table[k][idx];
+                    }
+                    return entry as T;
                 }
             }
         }
