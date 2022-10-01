@@ -37,6 +37,8 @@ type Subscribe = {
     fn(v: any): void;
 };
 
+type TableRow = Record<string, AllowedPrimitives>;
+
 // Utils is a convenient structure for working with the declared names on the store
 export interface Utils {
     tables: {[index in TableName]: TableName};
@@ -309,6 +311,25 @@ export default function CreateStore(initialState: Store) {
         return true;
     }
 
+    /**
+     * Convenience function for returning a table row based on the provided table and index.
+     * The function will return undefined if the provided index is out of range (e.g., greater than the number of rows in the table)
+     * @param table 
+     * @param idx 
+     * @returns TableRow | undefined
+     */
+    function _getTableRowByIndex(table: Table, idx: number): TableRow | undefined {
+        const arrayProperties = getArrayProperties(table);
+        if (idx < getTableRowCount(table)) {
+            let entry: TableRow = {}
+            for (const k of arrayProperties) {
+                entry[k] = table[k][idx];
+            }
+            return entry;
+        }
+        return undefined;
+    }
+
     const registerTable = (tName: TableName, fn: (v: any[]) => void, notify: TableNotify[]) => {
         if (!tableSubscriptions[tName]) {
             tableSubscriptions[tName] = [];
@@ -498,13 +519,11 @@ export default function CreateStore(initialState: Store) {
                     }
                 }
                 if (idx >= 0) {
-                    // build the appropriate entry
-                    // ISSUE #18
-                    let entry: Record<string, AllowedPrimitives> = {}
-                    for (const k of arrayProperties) {
-                        entry[k] = table[k][idx];
+                    const entry = _getTableRowByIndex(table, idx);
+                    if (entry) {
+                        return entry as T;
                     }
-                    return entry as T;
+                    return undefined;
                 }
             }
         }
@@ -521,12 +540,8 @@ export default function CreateStore(initialState: Store) {
                     const entries: Record<string, AllowedPrimitives>[] = [];
                     // loop through the rows until we find a matching index, returns the first match if any
                     for (let i = 0, len = numRows; i < len; i++) {
-                        let entry: Record<string, AllowedPrimitives> = {}
-                        // ISSUE #18
-                        for (const k of arrayProperties) {
-                            entry[k] = table[k][i];
-                        }
-                        if (where(entry as T)) {
+                        const entry = _getTableRowByIndex(table, i);
+                        if (entry && where(entry as T)) {
                             entries.push(entry);
                         }
                     }
@@ -555,12 +570,10 @@ export default function CreateStore(initialState: Store) {
                                 }
                             }
                             if (allMatch) {
-                                // ISSUE #18
-                                let entry: Record<string, AllowedPrimitives> = {}
-                                for (const k of arrayProperties) {
-                                    entry[k] = table[k][i];
+                                const entry = _getTableRowByIndex(table, i);
+                                if (entry) {
+                                    entries.push(entry);
                                 }
-                                entries.push(entry);
                             }
                         }
                         return entries as T[];
