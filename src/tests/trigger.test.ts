@@ -46,11 +46,13 @@ interface MyStore extends Store {
         };
     };
     triggers: {
-        models: {
-            onInsert(api: TriggerAPI, v: ModelEntry): void;
-            // onDelete: <ModelEntry>(api: TriggerAPI, v: ModelEntry) => {};
-            // onUpdate: <ModelEntry>(api: TriggerAPI, v: ModelEntry) => {};
-        };
+        tables: {
+            models: {
+                onInsert(api: TriggerAPI, v: ModelEntry): void;
+                // onDelete: <ModelEntry>(api: TriggerAPI, v: ModelEntry) => {};
+                // onUpdate: <ModelEntry>(api: TriggerAPI, v: ModelEntry) => {};
+            };
+        },
     };
     singles: {
         unsavedChanges?: boolean;
@@ -83,11 +85,13 @@ const store: MyStore = {
         },
     },
     triggers: {
-        models: {
-            onInsert: (api: TriggerAPI, v: ModelEntry) => {
-                api.insertTableRow<ModelRef>('modelRefs', { parentPK: v._pk, unsavedChanges: false, isOpen: false });
-            },
-        }
+        tables: {
+            models: {
+                onInsert: (api: TriggerAPI, v: ModelEntry) => {
+                    api.insertTableRow<ModelRef>('modelRefs', { parentPK: v._pk, unsavedChanges: false, isOpen: false });
+                },
+            }
+        },
     },
     singles: {
         count: 0,
@@ -153,7 +157,6 @@ describe('Basic operations', () => {
         expect(result.current?.name).toBe('updatedName');
     });
 
-    // LEFT-OFF HERE
     it('should update the table when a row is changed', () => {
         const { result } = renderHook(() => useTable<ModelEntry>('models', null, ['rowUpdate']));
         act(() => {

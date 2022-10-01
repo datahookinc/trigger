@@ -1,8 +1,16 @@
 import { useState, useRef, useEffect } from 'react';
+import type { TriggerQueueItem } from './triggerQueue';
+import { TriggerQueue } from './triggerQueue';
+export type { TriggerQueue } from './triggerQueue';
+
+type TableEntries = {[index: string]: Table};
+type SingleEntries = {[index: string]: any};
+type QueueEntries = {[index: string]: TriggerQueue<any>};
 
 // type StoreEntry = Store["models"][number]; how we can get the type of an element in an array
-type TableName = Extract<keyof Store["tables"], string>; // here to prevent TypeScript from using string | number as index
-type SingleName = Extract<keyof Store["singles"], string>; // here to prevent TypeScript from using string | number as index
+type TableName = Extract<keyof TableEntries, string>; // here to prevent TypeScript from using string | number as index
+type SingleName = Extract<keyof SingleEntries, string>; // here to prevent TypeScript from using string | number as index
+type QueueName = Extract<keyof QueueEntries, string>; // here to prevent TypeScript from using string | number as index
 /** Autoincrementing primary key required for tables */
 type PK = number;
 
@@ -20,24 +28,39 @@ type Notify = TableNotify | RowNotify;
  * - onUpdate
  * - onInsert
  */
-type Trigger = 'onDelete' | 'onUpdate' | 'onInsert';
+type TableTrigger = 'onDelete' | 'onUpdate' | 'onInsert';
+type SingleTrigger = 'onGet' | 'onSet';
+type QueueTrigger = 'onInsert' | 'onGet';
 
 type Subscribe = {
     notify: Notify[];
     fn(v: any): void;
 };
 
+// Utils is a convenient structure for working with the declared names on the store
+export interface Utils {
+    tables: {[index in TableName]: TableName};
+    singles: {[index in SingleName]: SingleName};
+    queues: {[index in QueueName]: QueueName};
+}
+
 export type AllowedPrimitives = string | number | Date | boolean | null;
 
+// TODO: see if this needs to be exported or not
 export type Table = {[index: string]: Array<AllowedPrimitives>} & {
-    /** The numbers you enter are quite in-con-sequential (Dr. Evil); the engine will assign them for you */
+    /** The numbers you enter are quite in-cons-e-quential (Dr. Evil); the engine will autoassign and autoincrement them for you */
     _pk: Array<PK>;
 }; // tables hold arrays
 
 export interface Store {
-    tables: {[index: string]: Table};
-    triggers?: Record<TableName, {[Property in Trigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves)
-    singles: {[index: string]: any};
+    tables?: TableEntries;
+    triggers?: {
+        tables?: Record<TableName, {[Property in TableTrigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves);
+        singles?: Record<SingleName, {[Property in SingleTrigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves);
+        queues?: Record<QueueName, {[Property in QueueTrigger]?: (api: TriggerAPI, v: any) => void}>; // TODO: someway to prevent infinite triggers (e.g., inserts/updates that keep calling themselves);
+    }
+    singles?: SingleEntries;
+    queues?: QueueEntries;
     error: string;
 }
 
@@ -49,18 +72,21 @@ type API = {
     unregisterTable(tName: TableName, fn: (v: any[]) => void): void;
     unregisterSingle(sName: SingleName, fn: (v: any) => void): void;
     getTable<T extends Record<string, AllowedPrimitives>>(t: TableName): T[];
-    getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | null;
-    findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | null;
+    getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | undefined;
+    findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | undefined;
     findTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T[];
     setError(e: string): void;
-    insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null;
+    insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | undefined;
     insertTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[];
     updateTableRow<T extends Record<string, AllowedPrimitives>>(tName: TableName, pk: PK, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} ): boolean;
     deleteTableRow(tName: TableName, pk: PK): boolean;
     clearTable(tName: TableName): boolean;
-    getSingle<T,>(sName: SingleName): T | null;
+    getSingle<T,>(sName: SingleName): T | undefined;
     setSingle<T,>(sName: SingleName, value: T): boolean;
     tableHasChanged<T,>(oldValues: T[], newValues: T[]): boolean;
+    insertQueueItem<T>(qName: string, item: T, cb?: ((ok: boolean) => void)): boolean;
+    getQueueItem<T>(qName: string): TriggerQueueItem<T> | undefined;
+    getQueueSize(qName: string): number;
 }
 
 export type TriggerAPI = {
@@ -74,6 +100,9 @@ export type TriggerAPI = {
     clearTable: API["clearTable"];
     getSingle: API["getSingle"];
     setSingle: API["setSingle"];
+    getQueueItem: API["getQueueItem"];
+    getQueueSize: API["getQueueSize"];
+    insertQueueItem: API["insertQueueItem"];
 }
 
 function createBoundTable(api: API) {
@@ -114,8 +143,8 @@ function createBoundTable(api: API) {
 }
 
 function createBoundTableRow(api: API) {
-    return function useTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: number, notify: RowNotify[] = []): T | null {
-        const [v, setV] = useState<null | T>(() => api.getTableRow<T>(t, pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+    return function useTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: number, notify: RowNotify[] = []): T | undefined {
+        const [v, setV] = useState<undefined | T>(() => api.getTableRow<T>(t, pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
         // NOTE: this is required to avoid firing useEffect when the notify object reference changes
         const notifyList = useRef(notify);
         
@@ -135,8 +164,8 @@ function createBoundTableRow(api: API) {
 }
 
 function createBoundSingle(api: API) {
-    return function useSingle<T>(sName: string): T | null {
-        const [v, setV] = useState<null | T>(() => api.getSingle<T>(sName)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+    return function useSingle<T>(sName: string): T | undefined {
+        const [v, setV] = useState<undefined | T>(() => api.getSingle<T>(sName)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
         useEffect(() => {
             const subscribe = (v: T) => {
                 setV(v);
@@ -152,13 +181,45 @@ function createBoundSingle(api: API) {
     }
 }
 
+/** NewTriggerQueue is a wrapper for creating a new trigger queue that will be managed by the store
+ * 
+ * @returns TriggerQueue<T>
+ */
+export function NewTriggerQueue<T>(): TriggerQueue<T> {
+    return new TriggerQueue<T>();
+}
+
+export function CreateUtils<T extends Utils>(s: Store): T {
+    const x: Utils = {
+        tables: {},
+        singles: {},
+        queues: {},
+    }
+
+    for (const tName in s.tables) {
+        x.tables[tName] = tName;
+    }
+
+    for (const sName in s.singles) {
+        x.singles[sName] = sName;
+    }
+
+    for (const qName in s.queues) {
+        x.queues[qName] = qName;
+    }
+
+    return x as T
+}
+
 export default function CreateStore(initialState: Store) {
 
     const tableSubscriptions: Record<TableName, Subscribe[]> = {};
     const rowSubscriptions: Record<TableName, Record<PK, Subscribe[]>> = {};
     const singleSubscriptions: Record<SingleName, ((v: any) => void)[]> = {};
     const tableKeys: Record<TableName, PK> = {};
-    const tableTriggers: Record<TableName, {[Property in Trigger]?: ((api: TriggerAPI, v: any) => void)}> = {};
+    const tableTriggers: Record<TableName, {[Property in TableTrigger]?: ((api: TriggerAPI, v: any) => void)}> = {};
+    const singleTriggers: Record<SingleName, {[Property in SingleTrigger]?: ((api: TriggerAPI, v: any) => void)}> = {};
+    const queueTriggers: Record<QueueName, {[Property in QueueTrigger]?: ((api: TriggerAPI, v: any) => void)}> = {};
     const transactionLog: string[] = [];
 
     const getArrayProperties = (t: Table): string[] => {
@@ -171,9 +232,8 @@ export default function CreateStore(initialState: Store) {
         return arrayProperties;
     };
 
-    // setup the primary keys
     // NOTE: this doesn't create a copy of the original store, it makes changes to it.
-    const store = ((initialState) => {
+    const store = (initialState => {
         for (const tName in initialState.tables) {
             let i = 0;
             const table = initialState.tables[tName];
@@ -189,18 +249,36 @@ export default function CreateStore(initialState: Store) {
         }
         
         // Attach triggers if user has provided them
-        for (const tName in initialState.triggers) {
-            for (const trigger in initialState.triggers[tName]) {
-                // If the table is valid and the trigger is valid we add it to our triggers
-                if (tName in initialState.tables && (trigger === 'onInsert' || trigger === 'onUpdate' || trigger === 'onDelete')) {
-                    // here in case trigger is passed as undefined
-                    if (!initialState.triggers[tName][trigger]) {
-                        continue;
+        if (initialState.triggers) {
+            for (const tName in initialState.triggers.tables) {
+                for (const trigger in initialState.triggers.tables[tName]) {
+                    // If the table is valid and the trigger is valid we add it to our triggers
+                    if (tName in initialState.triggers.tables && (trigger === 'onInsert' || trigger === 'onUpdate' || trigger === 'onDelete')) {
+                        // here in case trigger is passed as undefined
+                        if (!initialState.triggers.tables[tName][trigger]) {
+                            continue;
+                        }
+                        if (!tableTriggers[tName]) {
+                            tableTriggers[tName] = {};
+                        }
+                        tableTriggers[tName][trigger] = initialState.triggers.tables[tName][trigger];
                     }
-                    if (!tableTriggers[tName]) {
-                        tableTriggers[tName] = {};
+                }
+            }
+
+            for (const qName in initialState.triggers.queues) {
+                for (const trigger in initialState.triggers.queues[qName]) {
+                    // If the table is valid and the trigger is valid we add it to our triggers
+                    if (qName in initialState.triggers.queues && (trigger === 'onInsert' || trigger === 'onGet')) {
+                        // here in case trigger is passed as undefined
+                        if (!initialState.triggers.queues[qName][trigger]) {
+                            continue;
+                        }
+                        if (!queueTriggers[qName]) {
+                            queueTriggers[qName] = {};
+                        }
+                        queueTriggers[qName][trigger] = initialState.triggers.queues[qName][trigger];
                     }
-                    tableTriggers[tName][trigger] = initialState.triggers[tName][trigger];
                 }
             }
         }
@@ -346,7 +424,7 @@ export default function CreateStore(initialState: Store) {
 
     // The user provides the type they are expecting to be built
     const getTable = <T extends Record<string, AllowedPrimitives>,>(tName: TableName): T[] => {
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
             let arrayProperties = getArrayProperties(table);
             if (arrayProperties.length > 0) {
@@ -365,8 +443,8 @@ export default function CreateStore(initialState: Store) {
         return [];
     };
 
-    const findTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | null => {
-        const table = store.tables[tName];
+    const findTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | undefined => {
+        const table = store.tables?.[tName];
         if (table) {
             const numRows = getTableRowCount(table);
             if (numRows > 0 ) {
@@ -390,12 +468,12 @@ export default function CreateStore(initialState: Store) {
                     case 'object': {
                         const keys = Object.keys(where);
                         if (keys.length === 0) {
-                            return null;
+                            return undefined;
                         } else {
-                            // make sure the requested columns exist in the table; if they don't all exist, return null
+                            // make sure the requested columns exist in the table; if they don't all exist, return undefined
                             for (const k of keys) {
                                 if (!arrayProperties.includes(k)) {
-                                    return null;
+                                    return undefined;
                                 }
                             }
                             // loop through the rows until we find a matching index, returns the first match if any
@@ -416,7 +494,7 @@ export default function CreateStore(initialState: Store) {
                         break;
                     }
                     default: {
-                        return null;
+                        return undefined;
                     }
                 }
                 if (idx >= 0) {
@@ -430,11 +508,11 @@ export default function CreateStore(initialState: Store) {
                 }
             }
         }
-        return null
+        return undefined
     };
 
     const findTableRows = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T[] => {
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
             const numRows = getTableRowCount(table);
             if (numRows > 0 ) {
@@ -460,7 +538,7 @@ export default function CreateStore(initialState: Store) {
                     if (keys.length === 0) {
                         return [];
                     } else {
-                        // make sure the requested columns exist in the table; if they don't all exist, return null
+                        // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
                             if (!arrayProperties.includes(k)) {
                                 return [];
@@ -494,8 +572,8 @@ export default function CreateStore(initialState: Store) {
     }
 
     // The user provides the type they are expecting to be built
-    const getTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK): T | null => {
-        const table = store.tables[t];
+    const getTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK): T | undefined => {
+        const table = store.tables?.[t];
         if (table) {
             const numRows = getTableRowCount(table);
             if (numRows > 0 ) {
@@ -517,7 +595,7 @@ export default function CreateStore(initialState: Store) {
                 }
             }
         }
-        return null;
+        return undefined;
     };
 
     // internal function that the externally exposed insertTableRow() and insertTableRows() functions  call for adding entries to a table
@@ -541,25 +619,25 @@ export default function CreateStore(initialState: Store) {
     }
 
     // insertTableRow is used for adding an individual row. Any notifications are fired immediately.
-    const insertTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | null => {
+    const insertTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | undefined => {
         if (!(valueMap instanceof Object)) {
             console.log(`Error: entry is not an object or an Array of objects. Received ${typeof valueMap}`);
-            return null;
+            return undefined;
         }
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
             let arrayProperties = getArrayProperties(table);
             // confirm valueMap has all properties
             for (let i = 0, len = arrayProperties.length; i < len; i++) {
                 if (!(arrayProperties[i] in valueMap) && arrayProperties[i] !== '_pk') {
-                    return null;
+                    return undefined;
                 }
             }
             const entry = _insertTableRow<T>(tName, table, arrayProperties, valueMap);
             notifyTableSubscribers('rowInsert', tName);
             return entry as T;
         }
-        return null;
+        return undefined;
     };
 
     /**
@@ -580,7 +658,7 @@ export default function CreateStore(initialState: Store) {
         if (valueMap.length === 0) {
             return [];
         }
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
             let arrayProperties = getArrayProperties(table);
             // check that all values are correct before continuing
@@ -609,9 +687,9 @@ export default function CreateStore(initialState: Store) {
     };
     
     const updateTableRow = <T extends Record<string, AllowedPrimitives>>(tName: TableName, pk: PK, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} ): boolean => {
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
-            let arrayProperties = getArrayProperties(store.tables[tName]);
+            let arrayProperties = getArrayProperties(table);
             for (const k in valueMap) {
                 if (!arrayProperties.includes(k)) {
                     return false;
@@ -642,19 +720,21 @@ export default function CreateStore(initialState: Store) {
     };
 
     const setSingle = <T,>(sName: SingleName, value: T): boolean => {
-        if (store.singles[sName] !== value) {
-            store.singles[sName] = value;
-            notifySingleSubscribers<T>(sName, value); // we pass the value to save extra function calls within notifySingleSubscribers
+        if (store.singles?.[sName] !== undefined) {
+            if (store.singles[sName] !== value) {
+                store.singles[sName] = value;
+                notifySingleSubscribers<T>(sName, value); // we pass the value to save extra function calls within notifySingleSubscribers
+            }
         }
         return true;
     };
 
-    const getSingle = <T,>(sName: SingleName): T | null => {
-        return store.singles[sName] ?? null;
+    const getSingle = <T,>(sName: SingleName): T | undefined => {
+        return store.singles?.[sName];
     }
 
     const deleteTableRow = (tName: TableName, pk: PK): boolean => {
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
             let idx = -1;
             // find the idx where the pk exists in this table
@@ -664,7 +744,7 @@ export default function CreateStore(initialState: Store) {
                 }
             }
             if (idx >= 0) {
-                let arrayProperties = getArrayProperties(store.tables[tName]);
+                let arrayProperties = getArrayProperties(table);
                 for (const k of arrayProperties) {
                     table[k].splice(idx, 1);
                 }
@@ -677,7 +757,7 @@ export default function CreateStore(initialState: Store) {
     };
 
     const clearTable = (tName: TableName): boolean => {
-        const table = store.tables[tName];
+        const table = store.tables?.[tName];
         if (table) {
             const pkeys: PK[] = [];
             for (let i = 0, len = table._pk.length; i < len; i++) {
@@ -707,6 +787,42 @@ export default function CreateStore(initialState: Store) {
         return false;
     };
 
+    function insertQueueItem<T>(qName: string, item: T, cb?: ((ok: boolean) => void)): boolean {
+        const q = store.queues?.[qName];
+        if (q) {
+            const insertTrigger = queueTriggers[qName]?.['onInsert']
+            q.add(item, cb)
+            if (insertTrigger) {
+                insertTrigger(api, item);
+            }
+            return true;
+        }
+        return false;
+    };
+
+    function getQueueItem<T>(qName: string): TriggerQueueItem<T> | undefined {
+        const q = store.queues?.[qName];
+        if (q) {
+            const item = q.remove();
+            if (item) {
+                const getTrigger = queueTriggers[qName]?.['onGet']
+                if (getTrigger) {
+                    getTrigger(api, item);
+                }
+            }
+            return item;
+        }
+        return undefined;
+    };
+
+    function getQueueSize(qName: string): number {
+        const q = store.queues?.[qName];
+        if (q) {
+            return q.size()
+        }
+        return -1; // return -1 if queue does not exist
+    }
+
     const api: API = {
         getTable,
         getTableRow,
@@ -727,6 +843,9 @@ export default function CreateStore(initialState: Store) {
         getSingle,
         setSingle,
         tableHasChanged,
+        getQueueItem,
+        getQueueSize,
+        insertQueueItem,
     };
 
     // Bind the API to the hooks
@@ -749,5 +868,8 @@ export default function CreateStore(initialState: Store) {
         getSingle,
         getTable,
         getTableRow,
+        getQueueItem,
+        getQueueSize,
+        insertQueueItem,
     }
 };

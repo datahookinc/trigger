@@ -1,5 +1,7 @@
 import { renderHook, act } from '@testing-library/react';
-import CreateStore, { Store, TriggerAPI } from '../trigger/trigger';
+import type { Store, TriggerAPI, TriggerQueue } from '../trigger/trigger';
+import CreateStore, { NewTriggerQueue, CreateUtils } from '../trigger/trigger';
+import { TriggerQueueItem } from '../trigger/triggerQueue';
 
 type Customer = {
     _pk: number;
@@ -73,13 +75,25 @@ interface MyStore extends Store {
             hasShipped: Shipment["hasShipped"][];
         };
     };
-    triggers: {
-        orders: {
-            onInsert(api: TriggerAPI, v: Order): void;
-        };
-    };
     singles: {
         numProductsOutOfStock: number;
+        pendingActions: boolean;
+    };
+    queues: {
+        eventQueue: TriggerQueue<string>;
+    };
+    triggers: {
+        tables: {
+            orders: {
+                onInsert(api: TriggerAPI, v: Order): void;
+            };
+        },
+        queues: {
+            eventQueue: {
+                onInsert(api: TriggerAPI, v: string): void;
+                onGet(api: TriggerAPI, v: TriggerQueueItem<string>): void;
+            }
+        }
     };
     error: '';
 }
@@ -120,23 +134,43 @@ const store: MyStore = {
             hasShipped: [],
         }
     },
-    triggers: {
-        orders: {
-            onInsert: (api: TriggerAPI, v: Order) => {
-                api.insertTableRow<Shipment>('shipments', { orderID: v.orderID, customerID: v.customerID, hasShipped: false });
-            }
-        },
-        // products: {
-        //     onUpdate: (api: TriggerAPI, v: Product) => {
-                
-        //     }
-        // }
-    },
     singles: {
         numProductsOutOfStock: 0,
+        pendingActions: false,
+    },
+    queues: {
+        eventQueue: NewTriggerQueue<string>(),
+    },
+    triggers: {
+        tables: {
+            orders: {
+                onInsert: (api: TriggerAPI, v: Order) => {
+                    api.insertTableRow<Shipment>('shipments', { orderID: v.orderID, customerID: v.customerID, hasShipped: false });
+                }
+            },
+        },
+        queues: {
+            eventQueue: {
+                onInsert: (api: TriggerAPI) => api.setSingle('pendingActions', true),
+                onGet: (api: TriggerAPI) => api.setSingle('pendingActions', false),
+            },
+        },
     },
     error: '',
 }
+
+/* Now we can reference our queues, tables, and singles throughout our codebase */
+type QueueNames = Extract<keyof MyStore['queues'], string>
+type TableNames = Extract<keyof MyStore['tables'], string>
+type SingleNames = Extract<keyof MyStore['singles'], string>
+
+type MyUtils = {
+    tables: {[index in TableNames]: TableNames},  
+    singles: {[index in SingleNames]: SingleNames},  
+    queues: {[index in QueueNames]: QueueNames},
+}
+
+export const utils = CreateUtils<MyUtils>(store);
 
 const { 
     useTable,
@@ -150,7 +184,10 @@ const {
     clearTable,
     useSingle,
     setSingle,
-    getSingle 
+    getSingle,
+    getQueueItem,
+    getQueueSize,
+    insertQueueItem,
 } = CreateStore(store);
 
 describe('Testing store', () => {
@@ -166,7 +203,7 @@ describe('Testing store', () => {
     });
     it('should return null when row does not exist', () => {
         const { result } = renderHook(() => useTableRow<Customer>('customers', -1));
-        expect(result.current).toBeNull();
+        expect(result.current).toBeUndefined();
     });
 
     it('should return row when it exists', () => {
@@ -180,7 +217,7 @@ describe('Testing store', () => {
         act(() => {
             deleteTableRow('customers', 3);
         })
-        expect(result.current).toBeNull();
+        expect(result.current).toBeUndefined();
     });
 
     it('should insert the new row', () => {
@@ -189,7 +226,7 @@ describe('Testing store', () => {
     });
 
     it('should be notified of updates when a table row is updated', () => {
-        const { result } = renderHook(() => useTableRow<Customer>('customers', 2));
+        const { result } = renderHook(() => useTableRow<Customer>(utils.tables.customers, 2));
         act(() => {
             updateTableRow<Customer>('customers', 2, { lastName: 'McBilly' });
         });
@@ -197,7 +234,7 @@ describe('Testing store', () => {
     });
 
     it('should find all table rows when passing a function', () => {
-        const { result } = renderHook(() => findTableRows<Customer>('customers', (v: Customer) => {
+        const { result } = renderHook(() => findTableRows<Customer>(utils.tables.customers, (v: Customer) => {
             return v.firstName === 'Billy' || v.firstName === 'Tammy';
         }));
         // Note: it is unwise to rely on the rows being returned in a particular order
@@ -207,7 +244,7 @@ describe('Testing store', () => {
     })
 
     it('should find all table rows when passing an object', () => {
-        const { result } = renderHook(() => findTableRows<Customer>('customers', { lastName: 'McBilly'}));
+        const { result } = renderHook(() => findTableRows<Customer>(utils.tables.customers, { lastName: 'McBilly'}));
         // Note: it is unwise to rely on the rows being returned in a particular order
         expect(result.current.length).toBe(2);
         expect(result.current[0].firstName).toBe('Billy');
@@ -215,44 +252,106 @@ describe('Testing store', () => {
     })
 
     it('should return an empty array when finding all table rows with non-matching function', () => {
-        const { result } = renderHook(() => findTableRows<Customer>('customers', (v: Customer) => {
+        const { result } = renderHook(() => findTableRows<Customer>(utils.tables.customers, (v: Customer) => {
             return v.firstName === 'Teddy';
         }));
         expect(result.current.length).toBe(0);
     })
 
     it('should return an empty array when finding all table rows with non-matching object', () => {
-        const { result } = renderHook(() => findTableRows<Customer>('customers', { firstName: 'Teddy'}));
+        const { result } = renderHook(() => findTableRows<Customer>(utils.tables.customers, { firstName: 'Teddy'}));
         expect(result.current.length).toBe(0);
     })
 
     it('should find the first table row when passing a function', () => {
-        const { result } = renderHook(() => findTableRow<Customer>('customers', (v: Customer) => {
+        const { result } = renderHook(() => findTableRow<Customer>(utils.tables.customers, (v: Customer) => {
             return v.firstName === 'Billy' || v.firstName === 'Tammy';
         }));
         // Note: it is unwise to rely on the rows being returned in a particular order
-        expect(result.current).not.toBeNull()
+        expect(result.current).toBeTruthy()
         expect(result.current!.firstName).toBe('Billy');
     })
 
     it('should find the first table row when passing an object', () => {
-        const { result } = renderHook(() => findTableRow<Customer>('customers', { lastName: 'McBilly'}));
+        const { result } = renderHook(() => findTableRow<Customer>(utils.tables.customers, { lastName: 'McBilly'}));
         // Note: it is unwise to rely on the rows being returned in a particular order
-        expect(result.current).not.toBeNull()
+        expect(result.current).toBeTruthy()
         expect(result.current!.firstName).toBe('Billy');
     })
 
     it('should return null when finding a table row with non-matching function', () => {
-        const { result } = renderHook(() => findTableRow<Customer>('customers', (v: Customer) => {
+        const { result } = renderHook(() => findTableRow<Customer>(utils.tables.customers, (v: Customer) => {
             return v.firstName === 'Teddy';
         }));
-        expect(result.current).toBeNull();
+        expect(result.current).toBeUndefined();
     })
 
     it('should return null when finding a table row with non-matching object', () => {
-        const { result } = renderHook(() => findTableRow<Customer>('customers', { firstName: 'Teddy'}));
-        expect(result.current).toBeNull();
+        const { result } = renderHook(() => findTableRow<Customer>(utils.tables.customers, { firstName: 'Teddy'}));
+        expect(result.current).toBeUndefined();
     })
+});
 
+describe('Testing TriggerQueue', () => {
+    it('should insert an item to the queue', () => {
+        insertQueueItem<string>(utils.queues.eventQueue, 'openEvent');
+        expect(getQueueSize(utils.queues.eventQueue)).toEqual(1);
+    });
 
+    it('should get an item from the queue', () => {
+        getQueueItem<string>(utils.queues.eventQueue);
+        expect(getQueueSize(utils.queues.eventQueue)).toEqual(0);
+    });
+
+    it('should return undefined when getting from an empty queue', () => {
+        const v = getQueueItem<string>(utils.queues.eventQueue);
+        expect(v).toBeUndefined();
+    });
+
+    it('should return false when inserting into an unknown queue', () => {
+        const v = insertQueueItem<string>('some fake queue', 'some item');
+        expect(v).toEqual(false);
+    });
+
+    it('should return undefined when getting from an unknown queue', () => {
+        const v = getQueueItem<string>('some fake queue');
+        expect(v).toBeUndefined();
+    });
+
+    it('should return -1 when getting size of unknown queue', () => {
+        const v = getQueueSize('some fake queue');
+        expect(v).toEqual(-1);
+    });
+
+    it('should return 0 when getting size of empty queue', () => {
+        const v = getQueueSize(utils.queues.eventQueue);
+        expect(v).toEqual(0);
+    });
+
+    it('should trigger to change pendingActions single to "true"', () => {
+        setSingle(utils.singles.pendingActions, false);
+        let v = getSingle(utils.singles.pendingActions);
+        expect(v).toEqual(false);
+        insertQueueItem<string>(utils.queues.eventQueue, 'testing queue trigger');
+        v = getSingle<boolean>(utils.singles.pendingActions);
+        expect(v).toEqual(true);
+    });
+
+    test('queue insertItem should trigger to change pendingActions single to "true"', () => {
+        setSingle(utils.singles.pendingActions, false);
+        let v = getSingle(utils.singles.pendingActions);
+        expect(v).toEqual(false);
+        insertQueueItem<string>(utils.queues.eventQueue, 'testing queue trigger');
+        v = getSingle<boolean>(utils.singles.pendingActions);
+        expect(v).toEqual(true);
+    });
+
+    test('queue getItem should trigger to change pendingActions single to "false"', () => {
+        setSingle(utils.singles.pendingActions, true);
+        let v = getSingle(utils.singles.pendingActions);
+        expect(v).toEqual(true);
+        getQueueItem<string>(utils.queues.eventQueue);
+        v = getSingle<boolean>(utils.singles.pendingActions);
+        expect(v).toEqual(false);
+    });
 });
