@@ -1,7 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
-import type { TriggerAPI, TriggerQueue } from '../trigger/trigger';
-import CreateStore, { NewTriggerQueue, CreateUtils } from '../trigger/trigger';
-import { TriggerQueueItem } from '../trigger/triggerQueue';
+import type { TriggerAPI, TriggerQueue, TriggerQueueItem } from '../src/trigger';
+import CreateStore, { NewTriggerQueue, CreateUtils } from '../src/trigger';
 
 type Customer = {
     _pk: number;

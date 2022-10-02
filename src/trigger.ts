@@ -1,7 +1,4 @@
 import { useState, useRef, useEffect } from 'react';
-import type { TriggerQueueItem } from './triggerQueue';
-import { TriggerQueue } from './triggerQueue';
-export type { TriggerQueue } from './triggerQueue';
 
 type TableEntries = {[index: string]: Table};
 type SingleEntries = {[index: string]: any};
@@ -116,6 +113,33 @@ export type TriggerAPI = {
     getQueueItem: API["getQueueItem"];
     getQueueSize: API["getQueueSize"];
     insertQueueItem: API["insertQueueItem"];
+}
+
+export type TriggerQueueItem<T> = {
+    item: T;
+    cb?: ((ok: boolean) => void);
+}
+
+interface ITriggerQueue<T> {
+    add(item: T, cb?: ((ok: boolean) => void)): void;
+    remove(): TriggerQueueItem<T> | undefined; // when remove is called your calling code can pass a callback function to action
+    size(): number;
+}
+
+export class TriggerQueue<T> implements ITriggerQueue<T> {
+    protected list: TriggerQueueItem<T>[] = new Array<TriggerQueueItem<T>>();
+    
+    add(item: T, cb?: ((ok: boolean) => void)): void {
+        this.list.push({ item, cb });
+    }
+
+    remove(): TriggerQueueItem<T> | undefined {
+        return this.list.shift();
+    }
+
+    size(): number {
+        return this.list.length;
+    }
 }
 
 function createBoundTable(api: API) {
