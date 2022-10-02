@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import type { Store, TriggerAPI, TriggerQueue } from '../trigger/trigger';
+import type { TriggerAPI, TriggerQueue } from '../trigger/trigger';
 import CreateStore, { NewTriggerQueue, CreateUtils } from '../trigger/trigger';
 import { TriggerQueueItem } from '../trigger/triggerQueue';
 
@@ -40,14 +40,14 @@ type Shipment = {
     hasShipped: boolean;
 }
 
-interface MyStore extends Store {
+interface MyStore {
     tables: {
         customers: {
             _pk: Customer["_pk"][];
             customerID: Customer["customerID"][];
             firstName: Customer["firstName"][];
             lastName: Customer["lastName"][];
-        };
+        }
         orders: {
             _pk: Order["_pk"][];
             orderID: Order["orderID"][];
@@ -78,6 +78,7 @@ interface MyStore extends Store {
     singles: {
         numProductsOutOfStock: number;
         pendingActions: boolean;
+        countChangesToNumProductsOutOfStock: number;
     };
     queues: {
         eventQueue: TriggerQueue<string>;
@@ -93,11 +94,15 @@ interface MyStore extends Store {
                 onInsert(api: TriggerAPI, v: string): void;
                 onGet(api: TriggerAPI, v: TriggerQueueItem<string>): void;
             }
-        }
+        },
+        singles: {
+            numProductsOutOfStock: {
+                onSet(api: TriggerAPI, v: number): void;
+                onGet(api: TriggerAPI, v: number): void;
+            }
+        },
     };
-    error: '';
 }
-
 
 const store: MyStore = {
     tables: {
@@ -137,6 +142,7 @@ const store: MyStore = {
     singles: {
         numProductsOutOfStock: 0,
         pendingActions: false,
+        countChangesToNumProductsOutOfStock: 0,
     },
     queues: {
         eventQueue: NewTriggerQueue<string>(),
@@ -155,8 +161,23 @@ const store: MyStore = {
                 onGet: (api: TriggerAPI) => api.setSingle('pendingActions', false),
             },
         },
+        singles: {
+            numProductsOutOfStock: {
+                onSet: (api: TriggerAPI) => {
+                    const v = api.getSingle<number>('countChangesToNumProductsOutOfStock');
+                    if (v !== undefined) {
+                        api.setSingle('countChangesToNumProductsOutOfStock', v + 1);
+                    }
+                },
+                onGet: (api: TriggerAPI) => {
+                    const v = api.getSingle<number>('countChangesToNumProductsOutOfStock');
+                    if (v !== undefined) {
+                        api.setSingle('countChangesToNumProductsOutOfStock', v + 1);
+                    }
+                },
+            },
+        }
     },
-    error: '',
 }
 
 /* Now we can reference our queues, tables, and singles throughout our codebase */
@@ -353,5 +374,24 @@ describe('Testing TriggerQueue', () => {
         getQueueItem<string>(utils.queues.eventQueue);
         v = getSingle<boolean>(utils.singles.pendingActions);
         expect(v).toEqual(false);
+    });
+
+});
+
+describe('Testing Single triggers', () => {
+    it('should trigger an increment to countChangesToNumProductsOutOfStock when numProductsOutOfStock is set', () => {
+        const ok = setSingle(utils.singles.numProductsOutOfStock, 100);
+        expect(ok).toEqual(true);
+        setSingle(utils.singles.numProductsOutOfStock, 200);
+        setSingle(utils.singles.numProductsOutOfStock, 300);
+        const count = getSingle<number>(utils.singles.countChangesToNumProductsOutOfStock);
+        expect(count).toEqual(3);
+    });
+
+    it('should trigger an increment to countChangesToNumProductsOutOfStock with numProductsOutOfStock onGet', () => {
+        setSingle(utils.singles.countChangesToNumProductsOutOfStock, 0);
+        getSingle(utils.singles.numProductsOutOfStock);
+        const count = getSingle<number>(utils.singles.countChangesToNumProductsOutOfStock);
+        expect(count).toEqual(1);
     });
 });

@@ -7,6 +7,7 @@ type TableEntries = {[index: string]: Table};
 type SingleEntries = {[index: string]: any};
 type QueueEntries = {[index: string]: TriggerQueue<any>};
 
+
 // type StoreEntry = Store["models"][number]; how we can get the type of an element in an array
 type TableName = Extract<keyof TableEntries, string>; // here to prevent TypeScript from using string | number as index
 type SingleName = Extract<keyof SingleEntries, string>; // here to prevent TypeScript from using string | number as index
@@ -20,7 +21,7 @@ type RowNotify = 'rowUpdate' | 'rowDelete';
  * - rowInsert
  * - rowDelete
  * - rowUpdate
-*/
+ */
 type Notify = TableNotify | RowNotify;
 
 /** Trigger is a union of the available triggers for a table
@@ -38,6 +39,18 @@ type Subscribe = {
 };
 
 type TableRow = Record<string, AllowedPrimitives>;
+
+enum ErrorCode {
+    UnknownTable = "Unknown Table",
+    UnknownQueue = "Unknown Queue",
+    UnknownSingle = "Unknown Single",
+    TableRowNotFound = "Table Row Not Found",
+}
+
+type ErrorMessage = {
+    code: ErrorCode,
+    message: string,
+}
 
 // Utils is a convenient structure for working with the declared names on the store
 export interface Utils {
@@ -63,7 +76,6 @@ export interface Store {
     }
     singles?: SingleEntries;
     queues?: QueueEntries;
-    error: string;
 }
 
 type API = {
@@ -77,7 +89,6 @@ type API = {
     getTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, pk: PK): T | undefined;
     findTableRow<T extends Record<string, AllowedPrimitives>>(t: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T | undefined;
     findTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, where: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} | ((v: T) => boolean)): T[];
-    setError(e: string): void;
     insertTableRow<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}): T | undefined;
     insertTableRows<T extends Record<string, AllowedPrimitives>,>(tName: TableName, valueMap: Array<{[Property in keyof T as Exclude<Property, "_pk">]: T[Property]}>): T[];
     updateTableRow<T extends Record<string, AllowedPrimitives>>(tName: TableName, pk: PK, valueMap: {[Property in keyof T as Exclude<Property, "_pk">]?: T[Property]} ): boolean;
@@ -252,6 +263,7 @@ export default function CreateStore(initialState: Store) {
         
         // Attach triggers if user has provided them
         if (initialState.triggers) {
+            // set table triggers
             for (const tName in initialState.triggers.tables) {
                 for (const trigger in initialState.triggers.tables[tName]) {
                     // If the table is valid and the trigger is valid we add it to our triggers
@@ -268,6 +280,7 @@ export default function CreateStore(initialState: Store) {
                 }
             }
 
+            // set queue triggers
             for (const qName in initialState.triggers.queues) {
                 for (const trigger in initialState.triggers.queues[qName]) {
                     // If the table is valid and the trigger is valid we add it to our triggers
@@ -280,6 +293,23 @@ export default function CreateStore(initialState: Store) {
                             queueTriggers[qName] = {};
                         }
                         queueTriggers[qName][trigger] = initialState.triggers.queues[qName][trigger];
+                    }
+                }
+            }
+
+            // set single triggers
+            for (const sName in initialState.triggers.singles) {
+                for (const trigger in initialState.triggers.singles[sName]) {
+                    // If the table is valid and the trigger is valid we add it to our triggers
+                    if (sName in initialState.triggers.singles && (trigger === 'onSet' || trigger === 'onGet')) {
+                        // here in case trigger is passed as undefined
+                        if (!initialState.triggers.singles[sName][trigger]) {
+                            continue;
+                        }
+                        if (!singleTriggers[sName]) {
+                            singleTriggers[sName] = {};
+                        }
+                        singleTriggers[sName][trigger] = initialState.triggers.singles[sName][trigger];
                     }
                 }
             }
@@ -328,6 +358,10 @@ export default function CreateStore(initialState: Store) {
             return entry;
         }
         return undefined;
+    }
+
+    function _logError(e: ErrorMessage) {
+        console.error(e);
     }
 
     const registerTable = (tName: TableName, fn: (v: any[]) => void, notify: TableNotify[]) => {
@@ -439,10 +473,6 @@ export default function CreateStore(initialState: Store) {
         }
     };
 
-    const setError = (e: string) => {
-        store.error = e;
-    };
-
     // The user provides the type they are expecting to be built
     const getTable = <T extends Record<string, AllowedPrimitives>,>(tName: TableName): T[] => {
         const table = store.tables?.[tName];
@@ -461,6 +491,7 @@ export default function CreateStore(initialState: Store) {
                 return entries as T[];
             }
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return [];
     };
 
@@ -527,6 +558,7 @@ export default function CreateStore(initialState: Store) {
                 }
             }
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return undefined
     };
 
@@ -581,12 +613,13 @@ export default function CreateStore(initialState: Store) {
                 }
             }
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return [];
     }
 
     // The user provides the type they are expecting to be built
-    const getTableRow = <T extends Record<string, AllowedPrimitives>,>(t: TableName, pk: PK): T | undefined => {
-        const table = store.tables?.[t];
+    const getTableRow = <T extends Record<string, AllowedPrimitives>,>(tName: TableName, pk: PK): T | undefined => {
+        const table = store.tables?.[tName];
         if (table) {
             const numRows = getTableRowCount(table);
             if (numRows > 0 ) {
@@ -608,6 +641,7 @@ export default function CreateStore(initialState: Store) {
                 }
             }
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return undefined;
     };
 
@@ -650,6 +684,7 @@ export default function CreateStore(initialState: Store) {
             notifyTableSubscribers('rowInsert', tName);
             return entry as T;
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return undefined;
     };
 
@@ -696,6 +731,7 @@ export default function CreateStore(initialState: Store) {
             notifyTableSubscribers('rowInsert', tName);
             return entries;
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return [];
     };
     
@@ -729,6 +765,7 @@ export default function CreateStore(initialState: Store) {
                 return true;
             }
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return false;
     };
 
@@ -737,13 +774,28 @@ export default function CreateStore(initialState: Store) {
             if (store.singles[sName] !== value) {
                 store.singles[sName] = value;
                 notifySingleSubscribers<T>(sName, value); // we pass the value to save extra function calls within notifySingleSubscribers
+                const setTrigger = singleTriggers[sName]?.['onSet'];
+                if (setTrigger) {
+                    setTrigger(api, value);
+                }
             }
+            return true;
         }
-        return true;
+        _logError({ code: ErrorCode.UnknownSingle, message: `Single "${sName}" could not be found` });
+        return false;
     };
 
     const getSingle = <T,>(sName: SingleName): T | undefined => {
-        return store.singles?.[sName];
+        if (store.singles?.[sName] !== undefined) {
+            const value = store.singles[sName];
+            const getTrigger = singleTriggers[sName]?.['onGet'];
+            if (getTrigger) {
+                getTrigger(api, value);
+            }
+            return value
+        }
+        _logError({ code: ErrorCode.UnknownSingle, message: `Single "${sName}" could not be found` });
+        return undefined;
     }
 
     const deleteTableRow = (tName: TableName, pk: PK): boolean => {
@@ -766,6 +818,7 @@ export default function CreateStore(initialState: Store) {
                 return true;
             }
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return false;
     };
 
@@ -777,10 +830,12 @@ export default function CreateStore(initialState: Store) {
                 pkeys.push(table._pk[i]);
             }
             for (let i = 0, len = pkeys.length; i < len; i++) {
-                deleteTableRow(tName, pkeys[i]);
+                deleteTableRow(tName, pkeys[i]); // this is expensive
             }
             tableKeys[tName] = 0; // reset the primary key
+            return true;
         }
+        _logError({ code: ErrorCode.UnknownTable, message: `Table "${tName}" could not be found` });
         return false;
     };
 
@@ -810,6 +865,7 @@ export default function CreateStore(initialState: Store) {
             }
             return true;
         }
+        _logError({ code: ErrorCode.UnknownQueue, message: `Queue "${qName}" could not be found` });
         return false;
     };
 
@@ -825,6 +881,7 @@ export default function CreateStore(initialState: Store) {
             }
             return item;
         }
+        _logError({ code: ErrorCode.UnknownQueue, message: `Queue "${qName}" could not be found` });
         return undefined;
     };
 
@@ -833,6 +890,7 @@ export default function CreateStore(initialState: Store) {
         if (q) {
             return q.size()
         }
+        _logError({ code: ErrorCode.UnknownQueue, message: `Queue "${qName}" could not be found` });
         return -1; // return -1 if queue does not exist
     }
 
@@ -851,7 +909,6 @@ export default function CreateStore(initialState: Store) {
         unregisterTable,
         unregisterRow,
         unregisterSingle,
-        setError,
         clearTable,
         getSingle,
         setSingle,
