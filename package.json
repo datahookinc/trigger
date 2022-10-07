@@ -6,18 +6,38 @@
     "react",
     "state",
     "state management",
-    "trigger"
+    "trigger",
+    "data oriented"
   ],
   "private": false,
+  "author": "Josh Weston",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "scripts": {
-    "test": "jest --silent --watch /tests",
-    "build": "tsc"
+    "test": "jest --rootDir=./tests --watch index.test.ts",
+    "test-build": "jest --silent /tests",
+    "build": "tsc",
+    "prepare": "npm run build",
+    "prepublishOnly": "npm run test-build",
+    "format": "prettier --config .prettierrc --write \"src/**/*.ts\"",
+    "lint": "eslint . --ext .ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/datahookinc/trigger.git"
+  },
+  "bugs": {
+    "url": "https://github.com/datahookinc/trigger/issues"
   },
   "devDependencies": {
     "@testing-library/react": "^13.4.0",
     "@types/jest": "^29.1.1",
+    "@typescript-eslint/eslint-plugin": "^5.38.1",
+    "@typescript-eslint/parser": "^5.38.1",
+    "eslint": "^8.24.0",
     "jest": "^29.1.2",
     "jest-environment-jsdom": "^29.1.2",
+    "prettier": "^2.7.1",
     "ts-jest": "^29.0.3",
     "typescript": "^4.8.4"
   },
