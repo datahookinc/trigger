@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { extractTables, extractQueues, extractSingles, CreateQueue, CreateSingle, CreateTable } from '../src';
+import { extract, CreateQueue, CreateSingle, CreateTable } from '../src';
 import type { Store, TriggerTable, TriggerQueue, TriggerSingle } from '../src';
 
 type Customer = {
@@ -29,6 +29,7 @@ interface MyStore extends Store {
         numProductsOutOfStock: TriggerSingle<number>;
         pendingActions: TriggerSingle<boolean>;
         countChangesToNumProductsOutOfStock: TriggerSingle<number>;
+        numUpdates: TriggerSingle<number>;
     };
 }
 
@@ -44,6 +45,7 @@ const s: MyStore = {
         numProductsOutOfStock: CreateSingle(0),
         pendingActions: CreateSingle(false),
         countChangesToNumProductsOutOfStock: CreateSingle(0),
+        numUpdates: CreateSingle(0),
     },
 };
 
@@ -67,61 +69,74 @@ s.singles.numProductsOutOfStock.onGet(() => {
 });
 
 s.tables.customers.onInsert((v) => {
-    s.tables.orders.insertTableRow({ orderID: 100, customerID: v.customerID, orderDate: new Date(), orderLocation: '' });
+    s.tables.orders.insertRow({ orderID: 100, customerID: v.customerID, orderDate: new Date(), orderLocation: '' });
 });
 
-/*** FREEZE MY STRUCTURES */
-const tables = extractTables(s.tables);
-const queues = extractQueues(s.queues);
-const singles = extractSingles(s.singles);
+s.tables.customers.onDelete((v) => {
+    s.tables.orders.deleteRows({ customerID: v.customerID });
+});
+
+s.tables.customers.onUpdate((v) => {
+    if (v.customerID === 10) {
+        s.singles.numUpdates.set(s.singles.numUpdates.get() + 1);
+    }
+});
+
+/*** EXTRACT AND FREEZE MY STRUCTURES */
+const { tables, singles, queues } = extract(s);
 
 describe('Testing Tables', () => {
     it('should increment primary keys when inserting new rows', () => {
-        const { result } = renderHook(() => tables.customers.useTable(null));
+        const { result } = renderHook(() => tables.customers.use(null));
         act(() => {
-            tables.customers.insertTableRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
-            tables.customers.insertTableRow({ customerID: 2, firstName: 'Sally', lastName: 'WrongLastName' });
-            tables.customers.insertTableRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
+            tables.customers.insertRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
+            tables.customers.insertRow({ customerID: 2, firstName: 'Sally', lastName: 'WrongLastName' });
+            tables.customers.insertRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
         });
         expect(result.current.length).toBe(3);
         expect(result.current.slice(-1)[0]._pk).toBe(3);
     });
 
+    it('should return all table rows', () => {
+        const rows = tables.customers.getRows();
+        expect(rows.length).toBe(3);
+    });
+
     it('should return null when row does not exist', () => {
-        const { result } = renderHook(() => tables.customers.useTableRow(-1));
+        const { result } = renderHook(() => tables.customers.useRow(-1));
         expect(result.current).toBeUndefined();
     });
 
     it('should return row when it exists', () => {
-        const { result } = renderHook(() => tables.customers.useTableRow(2));
+        const { result } = renderHook(() => tables.customers.useRow(2));
         expect(result.current?._pk).toBe(2);
         expect(result.current?.firstName).toBe('Sally');
     });
 
-    it('should return a NULL row when the row is removed', () => {
-        const { result } = renderHook(() => tables.customers.useTableRow(3));
+    it('should return an undefined row when the row is removed', () => {
+        const { result } = renderHook(() => tables.customers.useRow(3));
         act(() => {
-            tables.customers.deleteTableRow(3);
+            tables.customers.deleteRows(3);
         });
         expect(result.current).toBeUndefined();
     });
 
     it('should insert the new row', () => {
-        const customer = tables.customers.insertTableRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
+        const customer = tables.customers.insertRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
         expect(customer?.firstName).toBe('Tammy');
     });
 
     it('should be notified of updates when a table row is updated', () => {
-        const { result } = renderHook(() => tables.customers.useTableRow(2));
+        const { result } = renderHook(() => tables.customers.useRow(2));
         act(() => {
-            tables.customers.updateTableRow(2, { lastName: 'McBilly' });
+            tables.customers.updateRow(2, { lastName: 'McBilly' });
         });
         expect(result.current?.lastName).toBe('McBilly');
     });
 
     it('should find all table rows when passing a function', () => {
         const { result } = renderHook(() =>
-            tables.customers.findTableRows((v) => {
+            tables.customers.getRows((v) => {
                 return v.firstName === 'Billy' || v.firstName === 'Tammy';
             }),
         );
@@ -131,27 +146,32 @@ describe('Testing Tables', () => {
         expect(result.current[1].firstName).toBe('Tammy');
     });
     it('should find all table rows when passing an object', () => {
-        const { result } = renderHook(() => tables.customers.findTableRows({ lastName: 'McBilly' }));
+        const { result } = renderHook(() => tables.customers.getRows({ lastName: 'McBilly' }));
         // Note: it is unwise to rely on the rows being returned in a particular order
         expect(result.current.length).toBe(2);
         expect(result.current[0].firstName).toBe('Billy');
         expect(result.current[1].firstName).toBe('Sally');
     });
+
     it('should return an empty array when finding all table rows with non-matching function', () => {
         const { result } = renderHook(() =>
-            tables.customers.findTableRows((v) => {
+            tables.customers.getRows((v) => {
                 return v.firstName === 'Teddy';
             }),
         );
         expect(result.current.length).toBe(0);
     });
     it('should return an empty array when finding all table rows with non-matching object', () => {
-        const { result } = renderHook(() => tables.customers.findTableRows({ firstName: 'Teddy' }));
+        const { result } = renderHook(() => tables.customers.getRows({ firstName: 'Teddy' }));
         expect(result.current.length).toBe(0);
+    });
+    it('should find the table row when passing the PK', () => {
+        const result = tables.customers.getRow(1);
+        expect(result?.firstName).toBe('Billy');
     });
     it('should find the first table row when passing a function', () => {
         const { result } = renderHook(() =>
-            tables.customers.findTableRow((v) => {
+            tables.customers.getRow((v) => {
                 return v.firstName === 'Billy' || v.firstName === 'Tammy';
             }),
         );
@@ -162,24 +182,74 @@ describe('Testing Tables', () => {
         }
     });
     it('should find the first table row when passing an object', () => {
-        const { result } = renderHook(() => tables.customers.findTableRow({ lastName: 'McBilly' }));
+        const result = tables.customers.getRow({ lastName: 'McBilly' });
         // Note: it is unwise to rely on the rows being returned in a particular order
-        expect(result.current).toBeTruthy();
-        if (result.current) {
-            expect(result.current.firstName).toBe('Billy');
-        }
+        expect(result).toBeTruthy();
+        expect(result?.firstName).toBe('Billy');
     });
     it('should return undefined when finding a table row with non-matching function', () => {
         const { result } = renderHook(() =>
-            tables.customers.findTableRow((v) => {
+            tables.customers.getRow((v) => {
                 return v.firstName === 'Teddy';
             }),
         );
         expect(result.current).toBeUndefined();
     });
     it('should return undefined when finding a table row with non-matching object', () => {
-        const { result } = renderHook(() => tables.customers.findTableRow({ firstName: 'Teddy' }));
+        const { result } = renderHook(() => tables.customers.getRow({ firstName: 'Teddy' }));
         expect(result.current).toBeUndefined();
+    });
+    it('should return 0 when deleting rows that cannot be found', () => {
+        const numDeleted = tables.customers.deleteRows(-10);
+        expect(numDeleted).toBe(0);
+    });
+    it('should return 1 when deleting a customer using the primary key', () => {
+        const c = tables.customers.getRow({ lastName: 'McBilly' });
+        const n = tables.customers.getRowCount();
+        expect(c).toBeTruthy();
+        if (c) {
+            const num = tables.customers.deleteRows(c._pk);
+            const newN = tables.customers.getRowCount();
+            expect(num).toEqual(1);
+            expect(newN).toEqual(n - 1);
+            // add the row back in for future tests
+            tables.customers.insertRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
+        }
+    });
+    it('should return the same number of rows as getRowCount', () => {
+        const n = tables.customers.getRowCount({ lastName: 'McBilly' });
+        expect(n).toEqual(2);
+        const o = tables.customers.getRows({ lastName: 'McBilly' });
+        expect(o.length).toEqual(2);
+        const o1 = tables.customers.getRows((v) => v.lastName === 'McBilly');
+        expect(o1.length).toEqual(2);
+        expect(n).toEqual(o.length);
+        expect(n).toEqual(o1.length);
+    });
+    it('should return 1 when deleting a customer using the object approach', () => {
+        const n = tables.customers.getRowCount();
+        const num = tables.customers.deleteRows({ lastName: 'McTammy' });
+        const newN = tables.customers.getRowCount();
+        expect(num).toEqual(1);
+        expect(newN).toEqual(n - 1);
+        // add the row back in for future tests
+        tables.customers.insertRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
+    });
+    it('should return 1 when deleting a customer using the function approach', () => {
+        const n = tables.customers.getRowCount();
+        const num = tables.customers.deleteRows((v) => v.lastName === 'McTammy');
+        const newN = tables.customers.getRowCount();
+        expect(num).toEqual(1);
+        expect(newN).toEqual(n - 1);
+        // add the row back in for future tests
+        tables.customers.insertRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
+    });
+    it('should delete all rows when the call to deleteTableRows is undefined', () => {
+        const n = tables.customers.getRowCount();
+        const num = tables.customers.deleteRows();
+        const newN = tables.customers.getRowCount();
+        expect(num).toEqual(n);
+        expect(newN).toEqual(0);
     });
 });
 
@@ -240,10 +310,29 @@ describe('Testing Single triggers', () => {
 
 describe('Testing table triggers', () => {
     it('should add a new row to the "Orders" table', () => {
-        const result = tables.customers.insertTableRow({ customerID: 10, firstName: 'fake', lastName: 'McCustomer' });
+        const result = tables.customers.insertRow({ customerID: 10, firstName: 'fake', lastName: 'McCustomer' });
         expect(result.customerID).toBe(10);
-        const row = tables.orders.findTableRow({ customerID: 10 });
+        const row = tables.orders.getRow({ customerID: 10 });
         expect(row).toBeTruthy();
         expect(row?.customerID).toEqual(10);
+    });
+    it('should delete all customer orders from the "Orders" table', () => {
+        let n = tables.orders.getRowCount({ customerID: 10 });
+        const numDeleted = tables.customers.deleteRows({ customerID: 10 });
+        expect(numDeleted).toBeGreaterThan(0);
+        expect(numDeleted).toEqual(n);
+        n = tables.orders.getRowCount({ customerID: 10 });
+        expect(n).toEqual(0);
+    });
+
+    it('should trigger for the "numUpdates" to update when updating a customer record', () => {
+        const { result } = renderHook(() => singles.numUpdates.use());
+        act(() => {
+            const c = tables.customers.insertRow({ customerID: 10, firstName: 'fake', lastName: 'McCustomer' });
+            tables.customers.updateRow(c._pk, { firstName: 'NewFakeName' });
+            tables.customers.updateRow(c._pk, { firstName: 'NewNewFakeName' });
+            tables.customers.updateRow(c._pk, { firstName: 'OldFakeName' });
+        });
+        expect(result.current).toEqual(3);
     });
 });

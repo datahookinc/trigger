@@ -43,14 +43,17 @@ export interface Store {
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
 
 export type TriggerTable<T extends TableEntry> = {
-    useTable(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
-    useTableRow(pk: PK, notify?: RowNotify[]): T | undefined;
-    insertTableRow(r: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): T;
+    use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
+    useRow(pk: PK, notify?: RowNotify[]): T | undefined;
+    insertRow(r: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): T;
     onInsert(fn: (v: T) => void): void;
-    deleteTableRow(pk: PK): boolean;
-    updateTableRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] }): boolean;
-    findTableRows(where: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[];
-    findTableRow(where: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined;
+    deleteRows(where?: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number; // returns the number of deleted rows, 0 if none where deleted
+    onDelete(fn: (v: T) => void): void;
+    updateRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] }): boolean;
+    onUpdate(fn: (v: T) => void): void;
+    getRows(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[]; // returns all rows that match
+    getRow(where: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined; // returns the first row that matches
+    getRowCount(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number;
 };
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
@@ -62,7 +65,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
     const triggers: { [Property in TableTrigger]?: (v: T) => void } = {};
     let autoPK: PK = 0;
 
-    const getTable = (): T[] => {
+    const _getAllRows = (): T[] => {
         const entries: Record<string, AllowedPrimitives>[] = [];
         for (let i = 0, numValues = table['_pk'].length; i < numValues; i++) {
             const entry = {} as T;
@@ -74,18 +77,18 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
         return entries as T[];
     };
 
-    const getTableRowCount = (): number => {
+    const _getRowCount = (): number => {
         return table['_pk'].length;
     };
 
     /**
-     * Convenience function for returning a table row based on the provided table and index.
+     * Convenience function for returning a table row based on the provided index.
      * The function will return undefined if the provided index is out of range (e.g., greater than the number of rows in the table)
      * @param idx
      * @returns TableRow | undefined
      */
-    function getTableRowByIndex(idx: number): T | undefined {
-        if (idx < getTableRowCount()) {
+    function _getRowByIndex(idx: number): T | undefined {
+        if (idx < _getRowCount()) {
             const entry = {} as T;
             for (const k of columnNames) {
                 entry[k] = table[k][idx];
@@ -95,21 +98,23 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
         return undefined;
     }
 
-    const getTableRow = (pk: PK): T | undefined => {
-        if (table) {
-            let idx = -1;
-            for (let i = 0, len = table._pk.length; i < len; i++) {
-                if (table._pk[i] === pk) {
-                    idx = i;
-                    break;
-                }
-            }
-            if (idx >= 0) {
-                return getTableRowByIndex(idx);
+    /**
+     * Convenience function for returning a table row based on the provided primary key
+     * The function will return undefined if the provided index is out of range (e.g., greater than the number of rows in the table)
+     * @param pk
+     * @returns TableRow | undefined
+     */
+    function _getRowByPK(pk: PK): T | undefined {
+        if (pk < 0) {
+            return undefined;
+        }
+        for (let i = 0, len = _getRowCount(); i < len; i++) {
+            if (table._pk[i] === pk) {
+                return _getRowByIndex(i);
             }
         }
         return undefined;
-    };
+    }
 
     const tableHasChanged = (oldValues: T[], newValues: T[]): boolean => {
         if (oldValues.length !== newValues.length) {
@@ -141,7 +146,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
     const notifyTableSubscribers = (ne: TableNotify) => {
         const subs = tableSubscribers.filter((s) => s.notify.length === 0 || s.notify.includes(ne));
         if (subs.length > 0) {
-            const rows = getTable(); // PERFORMANCE: One of the downsides is we end-up creating a lot of objects each time the table changes
+            const rows = _getAllRows(); // PERFORMANCE: One of the downsides is we end-up creating a lot of objects each time the table changes
             for (let i = 0, len = subs.length; i < len; i++) {
                 subs[i].fn(rows);
             }
@@ -149,10 +154,10 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
     };
 
     const notifyRowSubscribers = (ne: RowNotify, pk: PK) => {
-        if (rowSubscribers[pk].length > 0) {
+        if (rowSubscribers[pk] && rowSubscribers[pk].length > 0) {
             const subs = rowSubscribers[pk].filter((s) => s.notify.length === 0 || s.notify.includes(ne));
             if (subs.length > 0) {
-                const row = getTableRow(pk);
+                const row = _getRowByPK(pk);
                 for (let i = 0, len = subs.length; i < len; i++) {
                     subs[i].fn(row);
                 }
@@ -181,8 +186,8 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
     };
 
     return {
-        useTable(where: ((v: T) => boolean) | null, notify: TableNotify[] = []): T[] {
-            const [v, setV] = useState<T[]>(() => (where ? getTable().filter(where) : getTable())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        use(where: ((v: T) => boolean) | null, notify: TableNotify[] = []): T[] {
+            const [v, setV] = useState<T[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
             const hasChanged = useRef((newValues: T[]) => tableHasChanged(v, newValues));
             const notifyList = useRef(notify);
@@ -206,7 +211,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
 
                 // NOTE: Initialize here because of the delay between useState and useEffect which means
                 // changes could have been dispatched before this component was registered to listen for them
-                const currentTableValues = whereClause.current ? getTable().filter(whereClause.current) : getTable();
+                const currentTableValues = whereClause.current ? _getAllRows().filter(whereClause.current) : _getAllRows();
                 setV(currentTableValues);
                 // unregister when component unmounts;
                 return () => {
@@ -215,17 +220,16 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
             }, [t]);
             return v;
         },
-        useTableRow(pk: PK, notify: RowNotify[] = []): T | undefined {
-            const [v, setV] = useState<T | undefined>(() => getTableRow(pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        useRow(pk: PK, notify: RowNotify[] = []): T | undefined {
+            const [v, setV] = useState<T | undefined>(() => _getRowByPK(pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid firing useEffect when the notify object reference changes
             const notifyList = useRef(notify);
-
             useEffect(() => {
                 const subscribe = (nv: T | undefined) => {
                     setV(nv);
                 };
                 registerRow(pk, subscribe, notifyList.current);
-                setV(getTableRow(pk));
+                setV(_getRowByPK(pk));
                 // unregister when component unmounts;
                 return () => {
                     unregisterRow(pk, subscribe);
@@ -233,7 +237,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
             }, [t, pk]);
             return v;
         },
-        insertTableRow(newRow: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): T {
+        insertRow(newRow: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): T {
             for (const k in newRow) {
                 table[k].push(newRow[k]);
             }
@@ -254,26 +258,73 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
             // return the entry to the calling function
             return entry;
         },
-        deleteTableRow(pk: number): boolean {
-            let idx = -1;
-            // find the idx where the pk exists in this table
-            for (let i = 0, len = table._pk.length; i < len; i++) {
-                if (table._pk[i] === pk) {
-                    idx = i;
-                }
-            }
-            if (idx >= 0) {
-                for (const k of columnNames) {
-                    table[k].splice(idx, 1);
-                }
+        deleteRows(where: undefined | PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number {
+            let i = table._pk.length;
+            let numRemoved = 0;
+            while (i--) {
+                let remove = false;
+                switch (typeof where) {
+                    // passing undefined means to delete all rows
+                    case 'undefined': {
+                        remove = true;
+                        break;
+                    }
+                    case 'number': {
+                        if (table._pk[i] === where) {
+                            remove = true;
+                        }
+                        break;
+                    }
+                    case 'function': {
+                        const entry = _getRowByIndex(i);
+                        if (entry && where(entry)) {
+                            remove = true;
+                        }
+                        break;
+                    }
+                    case 'object': {
+                        // an empty object allows the user to delete all rows
+                        const keys = Object.keys(where);
+                        // make sure the requested columns exist in the table; if they don't all exist, return undefined
+                        for (const k of keys) {
+                            if (!columnNames.includes(k)) {
+                                return 0;
+                            }
+                        }
 
-                notifyRowSubscribers('rowDelete', pk);
-                notifyTableSubscribers('rowDelete');
-                return true;
+                        let allMatch = true;
+                        for (const k of keys) {
+                            if (where[k] !== table[k][i]) {
+                                allMatch = false;
+                                break;
+                            }
+                        }
+                        if (allMatch) {
+                            remove = true;
+                        }
+                    }
+                }
+                if (remove) {
+                    const entry = _getRowByIndex(i);
+                    if (entry) {
+                        const pk = table._pk[i];
+                        for (const k of columnNames) {
+                            table[k].splice(i, 1);
+                        }
+                        // pass entry to trigger
+                        if (triggers['onDelete']) {
+                            triggers['onDelete'](entry);
+                        }
+                        // notify subscribers of changes to row and table
+                        notifyRowSubscribers('rowDelete', pk);
+                        notifyTableSubscribers('rowDelete');
+                        numRemoved++;
+                    }
+                }
             }
-            return false;
+            return numRemoved;
         },
-        updateTableRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): boolean {
+        updateRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): boolean {
             for (const k in valueMap) {
                 if (!columnNames.includes(k)) {
                     console.error(`Invalid column provided "${k}"`);
@@ -288,75 +339,89 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
                 }
             }
             if (idx >= 0) {
-                // Note: the user is protected from sending unknown or incompatible properties, it is just this update piece that is being problematic
-                for (const k in valueMap) {
-                    if (table[k] !== undefined && k !== '_pk') {
-                        const v = valueMap[k];
-                        if (v !== undefined) {
-                            table[k][idx] = v;
+                const entry = _getRowByIndex(idx);
+                if (entry) {
+                    for (const k in valueMap) {
+                        if (table[k] !== undefined && k !== '_pk') {
+                            const v = valueMap[k];
+                            if (v !== undefined) {
+                                table[k][idx] = v;
+                            }
                         }
                     }
+                    // pass entry to trigger
+                    if (triggers['onUpdate']) {
+                        triggers['onUpdate'](entry);
+                    }
+
+                    notifyRowSubscribers('rowUpdate', pk);
+                    notifyTableSubscribers('rowUpdate');
+                    return true;
                 }
-                notifyRowSubscribers('rowUpdate', pk);
-                notifyTableSubscribers('rowUpdate');
-                return true;
             }
             return false;
         },
-        findTableRows(where: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[] {
-            const numRows = getTableRowCount();
+        getRows(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[] {
+            const numRows = _getRowCount();
             if (numRows > 0) {
-                if (typeof where === 'function') {
-                    const entries: T[] = [];
-                    // loop through the rows until we find a matching index, returns the first match if any
-                    for (let i = 0, len = numRows; i < len; i++) {
-                        const entry = getTableRowByIndex(i);
-                        if (entry && where(entry)) {
-                            entries.push(entry);
-                        }
+                switch (typeof where) {
+                    case 'undefined': {
+                        return _getAllRows();
                     }
-                    return entries;
-                }
-
-                if (typeof where == 'object') {
-                    const keys = Object.keys(where);
-                    if (keys.length === 0) {
-                        return [];
-                    } else {
-                        // make sure the requested columns exist in the table; if they don't all exist, return undefined
-                        for (const k of keys) {
-                            if (!columnNames.includes(k)) {
-                                return [];
-                            }
-                        }
+                    case 'function': {
                         const entries: T[] = [];
-                        // loop through the rows looking for indexes that match
+                        // loop through the rows until we find a matching index, returns the first match if any
                         for (let i = 0, len = numRows; i < len; i++) {
-                            let allMatch = true;
-                            for (const k of keys) {
-                                if (where[k] !== table[k][i]) {
-                                    allMatch = false;
-                                    break;
-                                }
-                            }
-                            if (allMatch) {
-                                const entry = getTableRowByIndex(i);
-                                if (entry) {
-                                    entries.push(entry);
-                                }
+                            const entry = _getRowByIndex(i);
+                            if (entry && where(entry)) {
+                                entries.push(entry);
                             }
                         }
                         return entries;
+                    }
+                    case 'object': {
+                        const keys = Object.keys(where);
+                        if (keys.length === 0) {
+                            return [];
+                        } else {
+                            // make sure the requested columns exist in the table; if they don't all exist, return undefined
+                            for (const k of keys) {
+                                if (!columnNames.includes(k)) {
+                                    return [];
+                                }
+                            }
+                            const entries: T[] = [];
+                            // loop through the rows looking for indexes that match
+                            for (let i = 0, len = numRows; i < len; i++) {
+                                let allMatch = true;
+                                for (const k of keys) {
+                                    if (where[k] !== table[k][i]) {
+                                        allMatch = false;
+                                        break;
+                                    }
+                                }
+                                if (allMatch) {
+                                    const entry = _getRowByIndex(i);
+                                    if (entry) {
+                                        entries.push(entry);
+                                    }
+                                }
+                            }
+                            return entries;
+                        }
                     }
                 }
             }
             return [];
         },
-        findTableRow(where: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined {
-            const numRows = getTableRowCount();
+        getRow(where: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined {
+            const numRows = _getRowCount();
             if (numRows > 0) {
                 let idx = -1;
                 switch (typeof where) {
+                    case 'number': {
+                        return _getRowByPK(where);
+                    }
                     case 'function': {
                         // loop through the rows until we find a matching index, returns the first match if any
                         const entry = {} as T;
@@ -404,7 +469,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
                     }
                 }
                 if (idx >= 0) {
-                    const entry = getTableRowByIndex(idx);
+                    const entry = _getRowByIndex(idx);
                     if (entry) {
                         return entry;
                     }
@@ -412,8 +477,58 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
                 }
             }
         },
+        getRowCount(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number {
+            switch (typeof where) {
+                case 'object': {
+                    // make sure the requested columns exist in the table; if they don't all exist, return undefined
+                    const keys = Object.keys(where);
+                    for (const k of keys) {
+                        if (!columnNames.includes(k)) {
+                            return 0;
+                        }
+                    }
+                    const numRows = _getRowCount();
+                    let n = 0;
+                    // loop through the rows until we find a matching index, returns the first match if any
+                    for (let i = 0, len = numRows; i < len; i++) {
+                        let allMatch = true;
+                        for (const k of keys) {
+                            if (where[k] !== table[k][i]) {
+                                allMatch = false;
+                                break;
+                            }
+                        }
+                        if (allMatch) {
+                            n++;
+                        }
+                    }
+                    return n;
+                }
+                case 'function': {
+                    const numRows = _getRowCount();
+                    let n = 0;
+                    for (let i = 0, len = numRows; i < len; i++) {
+                        const entry = {} as T;
+                        for (const k of columnNames) {
+                            entry[k] = table[k][i];
+                        }
+                        if (where(entry)) {
+                            n++;
+                        }
+                    }
+                    return n;
+                }
+            }
+            return table._pk.length;
+        },
         onInsert(fn: (v: T) => void) {
             triggers['onInsert'] = fn;
+        },
+        onDelete(fn: (v: T) => void) {
+            triggers['onDelete'] = fn;
+        },
+        onUpdate(fn: (v: T) => void) {
+            triggers['onUpdate'] = fn;
         },
     };
 }
@@ -548,7 +663,7 @@ export function extractTables<T extends Store['tables']>(t: T): ExtractTables<T>
     return t;
 }
 
-// ExtractQueueschanges properties to readonly and removes properties that should not be exposed
+// ExtractQueues changes properties to readonly and removes properties that should not be exposed
 type ExtractQueues<T> = {
     readonly [K in keyof Omit<T, 'onInsert' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractQueues<T[K]> : T[K]; // omit the trigger functions because the user shouldn't be exposed to those.
 };
@@ -557,11 +672,31 @@ export function extractQueues<T extends Store['queues']>(t: T): ExtractQueues<T>
     return t;
 }
 
-// ExtractQueueschanges properties to readonly and removes properties that should not be exposed
+// ExtractSingles changes properties to readonly and removes properties that should not be exposed
 type ExtractSingles<T> = {
     readonly [K in keyof Omit<T, 'onSet' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractSingles<T[K]> : T[K]; // omit the trigger functions because the user shouldn't be exposed to those.
 };
 
 export function extractSingles<T extends Store['singles']>(t: T): ExtractSingles<T> {
     return t;
+}
+
+type Extracted<T extends Store> = {
+    tables: ExtractTables<T['tables']>;
+    singles: ExtractSingles<T['singles']>;
+    queues: ExtractQueues<T['queues']>;
+};
+
+export function extract<T extends Store>(t: T): Extracted<T> {
+    const extracted = {} as Extracted<T>;
+    if (t.tables) {
+        extracted.tables = t.tables as ExtractTables<T['tables']>;
+    }
+    if (t.singles) {
+        extracted.singles = t.singles as ExtractSingles<T['singles']>;
+    }
+    if (t.queues) {
+        extracted.queues = t.queues as ExtractQueues<T['queues']>;
+    }
+    return extracted;
 }
