@@ -68,8 +68,19 @@ s.singles.numProductsOutOfStock.onGet(() => {
     singles.countChangesToNumProductsOutOfStock.set(v + 1);
 });
 
-s.tables.customers.onInsert((v) => {
+s.tables.customers.onAfterInsert((v) => {
     s.tables.orders.insertRow({ orderID: 100, customerID: v.customerID, orderDate: new Date(), orderLocation: '' });
+});
+
+s.tables.customers.onBeforeInsert((v) => {
+    if (v.firstName === 'OmitMe') {
+        return false;
+    }
+
+    if (v.lastName === 'ChangeMe') {
+        v.lastName = 'Changed';
+        return v;
+    }
 });
 
 s.tables.customers.onDelete((v) => {
@@ -311,7 +322,7 @@ describe('Testing Single triggers', () => {
 describe('Testing table triggers', () => {
     it('should add a new row to the "Orders" table', () => {
         const result = tables.customers.insertRow({ customerID: 10, firstName: 'fake', lastName: 'McCustomer' });
-        expect(result.customerID).toBe(10);
+        expect(result?.customerID).toBe(10);
         const row = tables.orders.getRow({ customerID: 10 });
         expect(row).toBeTruthy();
         expect(row?.customerID).toEqual(10);
@@ -324,15 +335,32 @@ describe('Testing table triggers', () => {
         n = tables.orders.getRowCount({ customerID: 10 });
         expect(n).toEqual(0);
     });
-
     it('should trigger for the "numUpdates" to update when updating a customer record', () => {
         const { result } = renderHook(() => singles.numUpdates.use());
         act(() => {
             const c = tables.customers.insertRow({ customerID: 10, firstName: 'fake', lastName: 'McCustomer' });
-            tables.customers.updateRow(c._pk, { firstName: 'NewFakeName' });
-            tables.customers.updateRow(c._pk, { firstName: 'NewNewFakeName' });
-            tables.customers.updateRow(c._pk, { firstName: 'OldFakeName' });
+            expect(c).toBeTruthy();
+            if (c) {
+                tables.customers.updateRow(c._pk, { firstName: 'NewFakeName' });
+                tables.customers.updateRow(c._pk, { firstName: 'NewNewFakeName' });
+                tables.customers.updateRow(c._pk, { firstName: 'OldFakeName' });
+            }
         });
         expect(result.current).toEqual(3);
+    });
+    it('should not insert the row based on "onBeforeInsert" trigger', () => {
+        const n = tables.customers.getRowCount();
+        const c = tables.customers.insertRow({ customerID: 10, firstName: 'OmitMe', lastName: 'McCustomer' });
+        expect(c).toEqual(undefined);
+        const nv = tables.customers.getRowCount();
+        expect(n).toEqual(nv);
+    });
+    it('should alter the row basd on "onBeforeInsert" trigger', () => {
+        const n = tables.customers.getRowCount();
+        const c = tables.customers.insertRow({ customerID: 10, firstName: 'Happy', lastName: 'ChangeMe' });
+        expect(c).toBeTruthy();
+        const nv = tables.customers.getRowCount();
+        expect(nv).toEqual(n + 1);
+        expect(c?.lastName).toEqual('Changed');
     });
 });

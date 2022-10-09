@@ -12,7 +12,7 @@ type RowNotify = 'rowUpdate' | 'rowDelete';
  */
 type Notify = TableNotify | RowNotify;
 
-type TableTrigger = 'onDelete' | 'onUpdate' | 'onInsert';
+type TableTrigger = 'onDelete' | 'onUpdate' | 'onBeforeInsert' | 'onAfterInsert';
 type SingleTrigger = 'onGet' | 'onSet';
 type QueueTrigger = 'onInsert' | 'onGet';
 
@@ -45,8 +45,9 @@ export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed du
 export type TriggerTable<T extends TableEntry> = {
     use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
     useRow(pk: PK, notify?: RowNotify[]): T | undefined;
-    insertRow(r: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): T;
-    onInsert(fn: (v: T) => void): void;
+    insertRow(r: Omit<T, '_pk'>): T | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
+    onBeforeInsert(fn: (v: T) => T | void | boolean): void;
+    onAfterInsert(fn: (v: T) => void): void;
     deleteRows(where?: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number; // returns the number of deleted rows, 0 if none where deleted
     onDelete(fn: (v: T) => void): void;
     updateRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] }): boolean;
@@ -62,6 +63,8 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
     const columnNames: (keyof T)[] = Object.keys(t);
     const tableSubscribers: Subscribe<T[]>[] = [];
     const rowSubscribers: Record<PK, Subscribe<T | undefined>[]> = {};
+    let triggerBeforeInsert: undefined | ((v: T) => T | void | boolean) = undefined;
+    let triggerAfterInsert: undefined | ((v: T) => void) = undefined;
     const triggers: { [Property in TableTrigger]?: (v: T) => void } = {};
     let autoPK: PK = 0;
 
@@ -237,21 +240,36 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
             }, [t, pk]);
             return v;
         },
-        insertRow(newRow: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): T {
-            for (const k in newRow) {
-                table[k].push(newRow[k]);
-            }
-            table['_pk'].push(++autoPK);
-
-            // add the primary key and send it back
-            const entry = {
-                _pk: autoPK,
+        insertRow(newRow: Omit<T, '_pk'>): T | undefined {
+            const newPK = autoPK + 1;
+            let entry = {
+                _pk: newPK,
                 ...newRow,
             } as T;
 
+            if (triggerBeforeInsert) {
+                const v = triggerBeforeInsert(entry);
+                // user has elected to abort the insert
+                if (v === false) {
+                    return undefined;
+                }
+                // if the user returns a type (potentially with changes), then we reassign the values to entry
+                if (typeof v === 'object') {
+                    entry._pk = newPK; // protect against the user changing the intended primary key
+                    if (typeof v === 'object') {
+                        entry = v;
+                    }
+                }
+                // if the user returns nothing, or true, then the entry is considered correct for insertion
+            }
+            ++autoPK; // commit change to primary key
+            for (const k in entry) {
+                table[k].push(entry[k]);
+            }
+
             // pass entry to trigger
-            if (triggers['onInsert']) {
-                triggers['onInsert'](entry);
+            if (triggerAfterInsert) {
+                triggerAfterInsert(entry);
             }
 
             notifyTableSubscribers('rowInsert');
@@ -521,8 +539,11 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
             }
             return table._pk.length;
         },
-        onInsert(fn: (v: T) => void) {
-            triggers['onInsert'] = fn;
+        onBeforeInsert(fn: (v: T) => T | boolean | void) {
+            triggerBeforeInsert = fn;
+        },
+        onAfterInsert(fn: (v: T) => void) {
+            triggerAfterInsert = fn;
         },
         onDelete(fn: (v: T) => void) {
             triggers['onDelete'] = fn;
