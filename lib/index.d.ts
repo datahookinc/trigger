@@ -10,45 +10,51 @@ declare type TableEntry = {
 };
 export interface Store {
     tables?: {
-        [index: string]: TriggerTable<ReturnType<(<T extends TableEntry>() => T)>>;
+        [index: string]: Table<ReturnType<(<T extends TableEntry>() => T)>>;
     };
     queues?: {
-        [index: string]: TriggerQueue<unknown>;
+        [index: string]: Queue<unknown>;
     };
     singles?: {
-        [index: string]: TriggerSingle<unknown>;
+        [index: string]: Single<unknown>;
     };
 }
 export declare type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
-export declare type TriggerTable<T extends TableEntry> = {
-    useTable(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
-    useTableRow(pk: PK, notify?: RowNotify[]): T | undefined;
-    insertTableRow(r: {
-        [Property in keyof T as Exclude<Property, '_pk'>]: T[Property];
-    }): T;
-    onInsert(fn: (v: T) => void): void;
-    deleteTableRow(pk: PK): boolean;
-    updateTableRow(pk: PK, valueMap: {
+export declare type Table<T extends TableEntry> = {
+    use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
+    useRow(pk: PK, notify?: RowNotify[]): T | undefined;
+    insertRow(r: Omit<T, '_pk'>): T | undefined;
+    onBeforeInsert(fn: (v: T) => T | void | boolean): void;
+    onAfterInsert(fn: (v: T) => void): void;
+    deleteRows(where?: PK | {
+        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
+    } | ((v: T) => boolean)): number;
+    onDelete(fn: (v: T) => void): void;
+    updateRow(pk: PK, valueMap: {
         [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
     }): boolean;
-    findTableRows(where: {
+    onUpdate(fn: (v: T) => void): void;
+    getRows(where?: {
         [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
     } | ((v: T) => boolean)): T[];
-    findTableRow(where: {
+    getRow(where: PK | {
         [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
     } | ((v: T) => boolean)): T | undefined;
+    getRowCount(where?: {
+        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
+    } | ((v: T) => boolean)): number;
 };
-export declare function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTable<T>;
-export declare type TriggerQueueItem<T> = {
+export declare function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T>;
+export declare type QueueItem<T> = {
     item: T;
     cb?: (ok: boolean) => void;
 };
-export declare type TriggerQueue<T> = {
+export declare type Queue<T> = {
     insert(item: T, cb?: (ok: boolean) => void): boolean;
     onInsert(fn: (v: T) => void): void;
-    get(): TriggerQueueItem<T> | undefined;
+    get(): QueueItem<T> | undefined;
     onGet(fn: (v: T) => void): void;
     size(): number;
 };
@@ -56,15 +62,15 @@ export declare type TriggerQueue<T> = {
  *
  * @returns TriggerQueue<T>
  */
-export declare function CreateQueue<T>(): TriggerQueue<T>;
-export declare type TriggerSingle<T> = {
+export declare function CreateQueue<T>(): Queue<T>;
+export declare type Single<T> = {
     use(): T;
     set(v: T): boolean;
     onSet(fn: (v: T) => void): void;
     onGet(fn: (v: T) => void): void;
     get(): T;
 };
-export declare function CreateSingle<T>(s: T): TriggerSingle<T>;
+export declare function CreateSingle<T>(s: T): Single<T>;
 declare type ExtractTables<T> = {
     readonly [K in keyof Omit<T, 'onInsert'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractTables<T[K]> : T[K];
 };
@@ -77,4 +83,10 @@ declare type ExtractSingles<T> = {
     readonly [K in keyof Omit<T, 'onSet' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractSingles<T[K]> : T[K];
 };
 export declare function extractSingles<T extends Store['singles']>(t: T): ExtractSingles<T>;
+declare type Extracted<T extends Store> = {
+    tables: ExtractTables<T['tables']>;
+    singles: ExtractSingles<T['singles']>;
+    queues: ExtractQueues<T['queues']>;
+};
+export declare function extract<T extends Store>(t: T): Extracted<T>;
 export {};
