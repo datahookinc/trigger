@@ -7,10 +7,12 @@
     "state",
     "state management",
     "trigger",
-    "data oriented"
+    "data oriented",
+    "typescript"
   ],
   "private": false,
   "author": "Josh Weston",
+  "license": "MIT",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
