@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { extract, CreateQueue, CreateSingle, CreateTable } from '../src';
-import type { Store, TriggerTable, TriggerQueue, TriggerSingle } from '../src';
+import type { Store, Table, Queue, Single } from '../src';
 
 type Customer = {
     _pk: number;
@@ -12,24 +12,24 @@ type Customer = {
 type Order = {
     _pk: number;
     orderID: number;
-    customerID: number;
+    customerID: Customer['_pk'];
     orderDate: Date;
     orderLocation: string;
 };
 
 interface MyStore extends Store {
     tables: {
-        customers: TriggerTable<Customer>;
-        orders: TriggerTable<Order>;
+        customers: Table<Customer>;
+        orders: Table<Order>;
     };
     queues: {
-        eventQueue: TriggerQueue<string>;
+        eventQueue: Queue<string>;
     };
     singles: {
-        numProductsOutOfStock: TriggerSingle<number>;
-        pendingActions: TriggerSingle<boolean>;
-        countChangesToNumProductsOutOfStock: TriggerSingle<number>;
-        numUpdates: TriggerSingle<number>;
+        numProductsOutOfStock: Single<number>;
+        pendingActions: Single<boolean>;
+        countChangesToNumProductsOutOfStock: Single<number>;
+        numUpdates: Single<number>;
     };
 }
 

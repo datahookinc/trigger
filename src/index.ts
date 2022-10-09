@@ -30,19 +30,19 @@ type TableEntry = { [index: string]: AllowedPrimitives } & { _pk: PK };
 
 export interface Store {
     tables?: {
-        [index: string]: TriggerTable<ReturnType<<T extends TableEntry>() => T>>;
+        [index: string]: Table<ReturnType<<T extends TableEntry>() => T>>;
     };
     queues?: {
-        [index: string]: TriggerQueue<unknown>;
+        [index: string]: Queue<unknown>;
     };
     singles?: {
-        [index: string]: TriggerSingle<unknown>;
+        [index: string]: Single<unknown>;
     };
 }
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
 
-export type TriggerTable<T extends TableEntry> = {
+export type Table<T extends TableEntry> = {
     use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
     useRow(pk: PK, notify?: RowNotify[]): T | undefined;
     insertRow(r: Omit<T, '_pk'>): T | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
@@ -58,7 +58,7 @@ export type TriggerTable<T extends TableEntry> = {
 };
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTable<T> {
+export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> {
     const table: DefinedTable<T> = t;
     const columnNames: (keyof T)[] = Object.keys(t);
     const tableSubscribers: Subscribe<T[]>[] = [];
@@ -554,15 +554,15 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): TriggerTa
     };
 }
 
-export type TriggerQueueItem<T> = {
+export type QueueItem<T> = {
     item: T;
     cb?: (ok: boolean) => void;
 };
 
-export type TriggerQueue<T> = {
+export type Queue<T> = {
     insert(item: T, cb?: (ok: boolean) => void): boolean;
     onInsert(fn: (v: T) => void): void;
-    get(): TriggerQueueItem<T> | undefined;
+    get(): QueueItem<T> | undefined;
     onGet(fn: (v: T) => void): void;
     size(): number;
 };
@@ -571,8 +571,8 @@ export type TriggerQueue<T> = {
  *
  * @returns TriggerQueue<T>
  */
-export function CreateQueue<T>(): TriggerQueue<T> {
-    const q: TriggerQueueItem<T>[] = [];
+export function CreateQueue<T>(): Queue<T> {
+    const q: QueueItem<T>[] = [];
     const triggers: { [Property in QueueTrigger]?: (v: T) => void } = {};
 
     return {
@@ -584,7 +584,7 @@ export function CreateQueue<T>(): TriggerQueue<T> {
             }
             return true;
         },
-        get(): TriggerQueueItem<T> | undefined {
+        get(): QueueItem<T> | undefined {
             const item = q.shift();
             if (item) {
                 // pass entry to trigger
@@ -606,7 +606,7 @@ export function CreateQueue<T>(): TriggerQueue<T> {
     };
 }
 
-export type TriggerSingle<T> = {
+export type Single<T> = {
     use(): T;
     set(v: T): boolean;
     onSet(fn: (v: T) => void): void;
@@ -614,7 +614,7 @@ export type TriggerSingle<T> = {
     get(): T;
 };
 
-export function CreateSingle<T>(s: T): TriggerSingle<T> {
+export function CreateSingle<T>(s: T): Single<T> {
     let single = s;
     let subscribers: SingleSubscribe<T>[] = [];
     const triggers: { [Property in SingleTrigger]?: (v: T) => void } = {};
