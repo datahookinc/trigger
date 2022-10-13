@@ -53,8 +53,8 @@ Putting it together, this is what implementing a store looks like in Trigger.
 **store.ts**
 
 ```
-import { extract, CreateQueue, CreateSingle, CreateTable } from '../src';
-import type { Store, Table, Queue, Single } from '../src';
+import { extract, CreateQueue, CreateSingle, CreateTable } from '@datahook/trigger';
+import type { Store, Table, Queue, Single } from '@datahook/trigger';
 
 type Customer = {
     _pk: number;
