@@ -26,25 +26,18 @@ export declare type Table<T extends TableEntry> = {
     use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
     useRow(pk: PK, notify?: RowNotify[]): T | undefined;
     insertRow(r: Omit<T, '_pk'>): T | undefined;
+    insertRows(r: Omit<T, '_pk'>[], batch?: boolean): T[];
     onBeforeInsert(fn: (v: T) => T | void | boolean): void;
     onAfterInsert(fn: (v: T) => void): void;
-    deleteRows(where?: PK | {
-        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
-    } | ((v: T) => boolean)): number;
+    deleteRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): boolean;
+    deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batch?: boolean): number;
     onDelete(fn: (v: T) => void): void;
-    updateRow(pk: PK, valueMap: {
-        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
-    }): boolean;
+    updateRow(pk: PK, newValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>)): T | undefined;
+    updateRows(setValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>), where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batch?: boolean): T[];
     onUpdate(fn: (v: T) => void): void;
-    getRows(where?: {
-        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
-    } | ((v: T) => boolean)): T[];
-    getRow(where: PK | {
-        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
-    } | ((v: T) => boolean)): T | undefined;
-    getRowCount(where?: {
-        [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property];
-    } | ((v: T) => boolean)): number;
+    getRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T[];
+    getRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T | undefined;
+    getRowCount(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): number;
 };
 export declare function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T>;
 export declare type QueueItem<T> = {
