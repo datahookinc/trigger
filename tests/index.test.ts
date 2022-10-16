@@ -124,10 +124,70 @@ describe('Testing Tables', () => {
         expect(result.current?.firstName).toBe('Sally');
     });
 
+    it('should update the row using the object approach', () => {
+        let order = tables.orders.getRow(1);
+        if (order) {
+            tables.orders.updateRow(order._pk, { orderLocation: 'Canada' });
+            order = tables.orders.getRow(order._pk);
+            expect(order?.orderLocation).toEqual('Canada');
+        } else {
+            fail('order could not be found');
+        }
+    });
+
+    it('should update the row using the function approach', () => {
+        let order = tables.orders.getRow(1);
+        if (order) {
+            tables.orders.updateRow(order._pk, (o) => {
+                o.orderLocation = 'Europe';
+                return o;
+            });
+            order = tables.orders.getRow(order._pk);
+            expect(order?.orderLocation).toEqual('Europe');
+        } else {
+            fail('order could not be found');
+        }
+    });
+
+    it('should update all rows using the object approach without a where clause', () => {
+        let orders = tables.orders.getRows();
+        expect(orders.length).toEqual(3);
+        tables.orders.updateRows({ orderLocation: 'America' });
+        orders = tables.orders.getRows({ orderLocation: 'America' });
+        expect(orders.length).toEqual(3);
+    });
+
+    it('should update all rows using the object approach with an object where clause', () => {
+        let orders = tables.orders.getRows();
+        expect(orders.length).toEqual(3);
+        tables.orders.updateRows({ orderLocation: 'Europe' }, { orderLocation: 'America' });
+        orders = tables.orders.getRows({ orderLocation: 'Europe' });
+        expect(orders.length).toEqual(3);
+    });
+
+    it('should update all rows using the function approach without a where clause', () => {
+        let orders = tables.orders.getRows();
+        expect(orders.length).toEqual(3);
+        tables.orders.updateRows((o) => ({ ...o, orderLocation: 'America' }));
+        orders = tables.orders.getRows({ orderLocation: 'America' });
+        expect(orders.length).toEqual(3);
+    });
+
+    it('should update all rows using the function approach with a function where clause', () => {
+        let orders = tables.orders.getRows();
+        expect(orders.length).toEqual(3);
+        tables.orders.updateRows(
+            (o) => ({ ...o, orderLocation: 'Europe' }),
+            (o) => o.orderLocation === 'America',
+        );
+        orders = tables.orders.getRows({ orderLocation: 'Europe' });
+        expect(orders.length).toEqual(3);
+    });
+
     it('should return an undefined row when the row is removed', () => {
         const { result } = renderHook(() => tables.customers.useRow(3));
         act(() => {
-            tables.customers.deleteRows(3);
+            tables.customers.deleteRow(3);
         });
         expect(result.current).toBeUndefined();
     });
@@ -210,24 +270,24 @@ describe('Testing Tables', () => {
         const { result } = renderHook(() => tables.customers.getRow({ firstName: 'Teddy' }));
         expect(result.current).toBeUndefined();
     });
-    it('should return 0 when deleting rows that cannot be found', () => {
-        const numDeleted = tables.customers.deleteRows(-10);
-        expect(numDeleted).toBe(0);
+    it('should return false when deleting a row that cannot be found', () => {
+        const deleted = tables.customers.deleteRow(10);
+        expect(deleted).toBe(false);
     });
-    it('should return 1 when deleting a customer using the primary key', () => {
+    it('should return true when deleting a customer using the primary key', () => {
         const c = tables.customers.getRow({ lastName: 'McBilly' });
         const n = tables.customers.getRowCount();
         expect(c).toBeTruthy();
         if (c) {
-            const num = tables.customers.deleteRows(c._pk);
+            const deleted = tables.customers.deleteRow(c._pk);
             const newN = tables.customers.getRowCount();
-            expect(num).toEqual(1);
+            expect(deleted).toEqual(true);
             expect(newN).toEqual(n - 1);
             // add the row back in for future tests
             tables.customers.insertRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
         }
     });
-    it('should return the same number of rows as getRowCount', () => {
+    it('getRows() should return the same number of rows as getRowCount()', () => {
         const n = tables.customers.getRowCount({ lastName: 'McBilly' });
         expect(n).toEqual(2);
         const o = tables.customers.getRows({ lastName: 'McBilly' });
@@ -261,6 +321,17 @@ describe('Testing Tables', () => {
         const newN = tables.customers.getRowCount();
         expect(num).toEqual(n);
         expect(newN).toEqual(0);
+    });
+
+    it('should insert multiple rows when using insertRows', () => {
+        tables.orders.insertRows([
+            { customerID: 999, orderLocation: 'Canada', orderDate: new Date(), orderID: 1234 },
+            { customerID: 999, orderLocation: 'Canada', orderDate: new Date(), orderID: 1235 },
+            { customerID: 999, orderLocation: 'Canada', orderDate: new Date(), orderID: 1236 },
+        ]);
+        const n = tables.orders.getRowCount({ customerID: 999 });
+        expect(n).toEqual(3);
+        tables.orders.deleteRows({ customerID: 999 });
     });
 });
 

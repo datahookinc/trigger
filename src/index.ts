@@ -25,7 +25,6 @@ type SingleSubscribe<T> = (v: T) => void;
 
 type AllowedPrimitives = string | number | Date | boolean | null;
 
-// TODO: see if this needs to be exported or not
 type TableEntry = { [index: string]: AllowedPrimitives } & { _pk: PK };
 
 export interface Store {
@@ -42,19 +41,28 @@ export interface Store {
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
 
+// It is yelling because it is true, I need some way of saying the returned value has to have exactly the same properties as the received values
+
 export type Table<T extends TableEntry> = {
     use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
     useRow(pk: PK, notify?: RowNotify[]): T | undefined;
     insertRow(r: Omit<T, '_pk'>): T | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
+    insertRows(r: Omit<T, '_pk'>[], batch?: boolean): T[];
     onBeforeInsert(fn: (v: T) => T | void | boolean): void;
     onAfterInsert(fn: (v: T) => void): void;
-    deleteRows(where?: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number; // returns the number of deleted rows, 0 if none where deleted
+    deleteRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): boolean; // delete the first row that matches the PK, the property values provided, or the function
+    deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batch?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
     onDelete(fn: (v: T) => void): void;
-    updateRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] }): boolean;
+    updateRow(pk: PK, newValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>)): T | undefined;
+    updateRows(
+        setValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>),
+        where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean),
+        batch?: boolean,
+    ): T[];
     onUpdate(fn: (v: T) => void): void;
-    getRows(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[]; // returns all rows that match
-    getRow(where: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined; // returns the first row that matches
-    getRowCount(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number;
+    getRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T[]; // returns all rows that match
+    getRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T | undefined; // returns the first row that matches
+    getRowCount(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): number;
 };
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
@@ -188,6 +196,42 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         }
     };
 
+    const _insertRow = (newRow: Omit<T, '_pk'>): T | undefined => {
+        const newPK = autoPK + 1;
+        let entry = {
+            _pk: newPK,
+            ...newRow,
+        } as T;
+
+        if (triggerBeforeInsert) {
+            const v = triggerBeforeInsert(entry);
+            // user has elected to abort the insert
+            if (v === false) {
+                return undefined;
+            }
+            // if the user returns a type (potentially with changes), then we reassign the values to entry
+            if (typeof v === 'object') {
+                entry._pk = newPK; // protect against the user changing the intended primary key
+                if (typeof v === 'object') {
+                    entry = v;
+                }
+            }
+            // if the user returns nothing, or true, then the entry is considered correct for insertion
+        }
+        ++autoPK; // commit change to primary key
+        for (const k in entry) {
+            table[k].push(entry[k]);
+        }
+
+        // pass entry to trigger
+        if (triggerAfterInsert) {
+            triggerAfterInsert(entry);
+        }
+
+        // return the entry to the calling function
+        return entry;
+    };
+
     return {
         use(where: ((v: T) => boolean) | null, notify: TableNotify[] = []): T[] {
             const [v, setV] = useState<T[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
@@ -241,42 +285,89 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
             return v;
         },
         insertRow(newRow: Omit<T, '_pk'>): T | undefined {
-            const newPK = autoPK + 1;
-            let entry = {
-                _pk: newPK,
-                ...newRow,
-            } as T;
-
-            if (triggerBeforeInsert) {
-                const v = triggerBeforeInsert(entry);
-                // user has elected to abort the insert
-                if (v === false) {
-                    return undefined;
-                }
-                // if the user returns a type (potentially with changes), then we reassign the values to entry
-                if (typeof v === 'object') {
-                    entry._pk = newPK; // protect against the user changing the intended primary key
-                    if (typeof v === 'object') {
-                        entry = v;
-                    }
-                }
-                // if the user returns nothing, or true, then the entry is considered correct for insertion
+            const entry = _insertRow(newRow);
+            if (entry) {
+                notifyTableSubscribers('rowInsert');
             }
-            ++autoPK; // commit change to primary key
-            for (const k in entry) {
-                table[k].push(entry[k]);
-            }
-
-            // pass entry to trigger
-            if (triggerAfterInsert) {
-                triggerAfterInsert(entry);
-            }
-
-            notifyTableSubscribers('rowInsert');
-            // return the entry to the calling function
             return entry;
         },
-        deleteRows(where: undefined | PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number {
+        insertRows(newRows: Omit<T, '_pk'>[], batch = true): T[] {
+            const entries: T[] = [];
+            for (let i = 0, len = newRows.length; i < len; i++) {
+                const entry = _insertRow(newRows[i]);
+                if (entry) {
+                    if (!batch) {
+                        notifyTableSubscribers('rowInsert');
+                    }
+                    entries.push(entry);
+                }
+            }
+            if (batch) {
+                notifyTableSubscribers('rowInsert');
+            }
+            return entries;
+        },
+        deleteRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): boolean {
+            let i = table._pk.length;
+            while (i--) {
+                let remove = false;
+                switch (typeof where) {
+                    case 'number': {
+                        if (table._pk[i] === where) {
+                            remove = true;
+                        }
+                        break;
+                    }
+                    case 'function': {
+                        const entry = _getRowByIndex(i);
+                        if (entry && where(entry)) {
+                            remove = true;
+                        }
+                        break;
+                    }
+                    case 'object': {
+                        const keys = Object.keys(where);
+                        // make sure the requested columns exist in the table; if they don't all exist, return undefined
+                        for (const k of keys) {
+                            if (!columnNames.includes(k)) {
+                                return false;
+                            }
+                        }
+
+                        let allMatch = true;
+                        for (const k of keys) {
+                            if (where[k] !== table[k][i]) {
+                                allMatch = false;
+                                break;
+                            }
+                        }
+                        if (allMatch) {
+                            remove = true;
+                        }
+                    }
+                }
+                if (remove) {
+                    const entry = _getRowByIndex(i);
+                    if (entry) {
+                        const pk = table._pk[i];
+                        for (const k of columnNames) {
+                            table[k].splice(i, 1);
+                        }
+                        // pass entry to trigger
+                        if (triggers['onDelete']) {
+                            triggers['onDelete'](entry);
+                        }
+                        // notify subscribers of changes to row and table
+                        notifyRowSubscribers('rowDelete', pk);
+                        notifyTableSubscribers('rowDelete');
+                        return true;
+                    }
+                    break; // only delete the first instance
+                }
+            }
+            return false;
+        },
+        deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batch = true): number {
             let i = table._pk.length;
             let numRemoved = 0;
             while (i--) {
@@ -301,7 +392,6 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                         break;
                     }
                     case 'object': {
-                        // an empty object allows the user to delete all rows
                         const keys = Object.keys(where);
                         // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
@@ -335,20 +425,19 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                         }
                         // notify subscribers of changes to row and table
                         notifyRowSubscribers('rowDelete', pk);
-                        notifyTableSubscribers('rowDelete');
+                        if (!batch) {
+                            notifyTableSubscribers('rowDelete');
+                        }
                         numRemoved++;
                     }
                 }
             }
+            if (batch) {
+                notifyTableSubscribers('rowDelete');
+            }
             return numRemoved;
         },
-        updateRow(pk: PK, valueMap: { [Property in keyof T as Exclude<Property, '_pk'>]: T[Property] }): boolean {
-            for (const k in valueMap) {
-                if (!columnNames.includes(k)) {
-                    console.error(`Invalid column provided "${k}"`);
-                    return false;
-                }
-            }
+        updateRow(pk: PK, newValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>)): T | undefined {
             let idx = -1;
             // find the idx where the pk exists in this table
             for (let i = 0, len = table._pk.length; i < len; i++) {
@@ -359,27 +448,152 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
             if (idx >= 0) {
                 const entry = _getRowByIndex(idx);
                 if (entry) {
-                    for (const k in valueMap) {
-                        if (table[k] !== undefined && k !== '_pk') {
-                            const v = valueMap[k];
-                            if (v !== undefined) {
-                                table[k][idx] = v;
+                    switch (typeof newValue) {
+                        case 'object': {
+                            for (const k in newValue) {
+                                if (!columnNames.includes(k)) {
+                                    console.error(`Invalid column provided "${k}"`);
+                                    return undefined;
+                                }
                             }
+                            for (const k in newValue) {
+                                if (table[k] !== undefined && k !== '_pk') {
+                                    const v = newValue[k];
+                                    if (v !== undefined) {
+                                        table[k][idx] = v;
+                                    }
+                                }
+                            }
+                            break;
+                        }
+                        case 'function': {
+                            const nv = newValue(entry);
+                            for (const k in nv) {
+                                if (table[k] !== undefined && k !== '_pk') {
+                                    const v = nv[k];
+                                    if (v !== undefined) {
+                                        table[k][idx] = v;
+                                    }
+                                }
+                            }
+                            break;
                         }
                     }
-                    // pass entry to trigger
-                    if (triggers['onUpdate']) {
-                        triggers['onUpdate'](entry);
-                    }
 
-                    notifyRowSubscribers('rowUpdate', pk);
-                    notifyTableSubscribers('rowUpdate');
-                    return true;
+                    const updatedEntry = _getRowByIndex(idx);
+                    if (updatedEntry) {
+                        // pass entry to trigger
+                        if (triggers['onUpdate']) {
+                            triggers['onUpdate'](entry);
+                        }
+
+                        notifyRowSubscribers('rowUpdate', pk);
+                        notifyTableSubscribers('rowUpdate');
+                    }
+                    return updatedEntry;
                 }
             }
-            return false;
+            return undefined;
         },
-        getRows(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[] {
+        updateRows(
+            setValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>),
+            where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean),
+            batch = true,
+        ): T[] {
+            let idx = table._pk.length;
+            const entries: T[] = [];
+            while (idx--) {
+                let update = false;
+                switch (typeof where) {
+                    case 'undefined': {
+                        update = true;
+                        break;
+                    }
+                    case 'function': {
+                        const entry = _getRowByIndex(idx);
+                        if (entry && where(entry)) {
+                            update = true;
+                        }
+                        break;
+                    }
+                    case 'object': {
+                        const keys = Object.keys(where);
+                        // make sure the requested columns exist in the table; if they don't all exist, return undefined
+                        for (const k of keys) {
+                            if (!columnNames.includes(k)) {
+                                return [];
+                            }
+                        }
+
+                        let allMatch = true;
+                        for (const k of keys) {
+                            if (where[k] !== table[k][idx]) {
+                                allMatch = false;
+                                break;
+                            }
+                        }
+                        if (allMatch) {
+                            update = true;
+                        }
+                    }
+                }
+                if (update) {
+                    const entry = _getRowByIndex(idx);
+                    if (entry) {
+                        switch (typeof setValue) {
+                            case 'object': {
+                                for (const k in setValue) {
+                                    if (!columnNames.includes(k)) {
+                                        console.error(`Invalid column provided "${k}"`);
+                                        return [];
+                                    }
+                                }
+                                for (const k in setValue) {
+                                    if (table[k] !== undefined && k !== '_pk') {
+                                        const v = setValue[k];
+                                        if (v !== undefined) {
+                                            table[k][idx] = v;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                            case 'function': {
+                                const nv = setValue(entry);
+                                for (const k in nv) {
+                                    if (table[k] !== undefined && k !== '_pk') {
+                                        const v = nv[k];
+                                        if (v !== undefined) {
+                                            table[k][idx] = v;
+                                        }
+                                    }
+                                }
+                                break;
+                            }
+                        }
+
+                        const updatedEntry = _getRowByIndex(idx);
+                        if (updatedEntry) {
+                            // pass entry to trigger
+                            if (triggers['onUpdate']) {
+                                triggers['onUpdate'](entry);
+                            }
+
+                            notifyRowSubscribers('rowUpdate', updatedEntry._pk);
+                            if (!batch) {
+                                notifyTableSubscribers('rowUpdate');
+                            }
+                            entries.push(updatedEntry);
+                        }
+                    }
+                }
+            }
+            if (batch) {
+                notifyTableSubscribers('rowUpdate');
+            }
+            return entries;
+        },
+        getRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T[] {
             const numRows = _getRowCount();
             if (numRows > 0) {
                 switch (typeof where) {
@@ -432,7 +646,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
             }
             return [];
         },
-        getRow(where: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined {
+        getRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T | undefined {
             const numRows = _getRowCount();
             if (numRows > 0) {
                 let idx = -1;
@@ -495,7 +709,7 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                 }
             }
         },
-        getRowCount(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number {
+        getRowCount(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): number {
             switch (typeof where) {
                 case 'object': {
                     // make sure the requested columns exist in the table; if they don't all exist, return undefined
