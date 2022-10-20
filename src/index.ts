@@ -12,7 +12,6 @@ type RowNotify = 'rowUpdate' | 'rowDelete';
  */
 type Notify = TableNotify | RowNotify;
 
-type TableTrigger = 'onDelete' | 'onUpdate' | 'onBeforeInsert' | 'onAfterInsert';
 type SingleTrigger = 'onGet' | 'onSet';
 type QueueTrigger = 'onInsert' | 'onGet';
 
@@ -60,7 +59,8 @@ export type Table<T extends TableEntry> = {
         where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean),
         batchNotify?: boolean,
     ): T[];
-    onUpdate(fn: (v: T) => void): void;
+    onBeforeUpdate(fn: (currentValue: T, newValue: T) => T | void | boolean): void;
+    onAfterUpdate(fn: (previousValue: T, newValue: T) => void): void;
     getRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T[]; // returns all rows that match
     getRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T | undefined; // returns the first row that matches
     getRowCount(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): number;
@@ -76,7 +76,8 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
     let triggerAfterInsert: undefined | ((v: T) => void) = undefined;
     let triggerBeforeDelete: undefined | ((v: T) => boolean | void) = undefined;
     let triggerAfterDelete: undefined | ((v: T) => void) = undefined;
-    const triggers: { [Property in TableTrigger]?: (v: T) => void } = {};
+    let triggerBeforeUpdate: undefined | ((cv: T, nv: T) => T | void | boolean) = undefined;
+    let triggerAfterUpdate: undefined | ((pv: T, nv: T) => void) = undefined;
     let autoPK: PK = 0;
 
     const _getAllRows = (): T[] => {
@@ -253,6 +254,41 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         }
 
         return true;
+    };
+
+    const _updateRow = (idx: number, cv: T, nv: Partial<Omit<T, '_pk'>>): T | undefined => {
+        // merge the two values
+        const merged = {
+            ...cv,
+            ...nv,
+            _pk: cv._pk, // extra precaution
+        };
+
+        let updateValue = merged;
+        if (triggerBeforeUpdate) {
+            const res = triggerBeforeUpdate(cv, merged);
+            if (res === false) {
+                return undefined;
+            }
+            if (typeof res === 'object') {
+                updateValue = res;
+            }
+        }
+
+        for (const k in updateValue) {
+            if (table[k] !== undefined && k !== '_pk') {
+                const v = updateValue[k];
+                if (v !== undefined) {
+                    table[k][idx] = v;
+                }
+            }
+        }
+
+        if (triggerAfterUpdate) {
+            triggerAfterUpdate(cv, updateValue);
+        }
+
+        return updateValue;
     };
 
     return {
@@ -456,11 +492,13 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
             for (let i = 0, len = table._pk.length; i < len; i++) {
                 if (table._pk[i] === pk) {
                     idx = i;
+                    break;
                 }
             }
             if (idx >= 0) {
-                const entry = _getRowByIndex(idx);
-                if (entry) {
+                const currentEntry = _getRowByIndex(idx);
+                if (currentEntry) {
+                    let updated: T | undefined = undefined;
                     switch (typeof newValue) {
                         case 'object': {
                             for (const k in newValue) {
@@ -469,41 +507,21 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                                     return undefined;
                                 }
                             }
-                            for (const k in newValue) {
-                                if (table[k] !== undefined && k !== '_pk') {
-                                    const v = newValue[k];
-                                    if (v !== undefined) {
-                                        table[k][idx] = v;
-                                    }
-                                }
-                            }
+                            updated = _updateRow(idx, currentEntry, newValue);
                             break;
                         }
                         case 'function': {
-                            const nv = newValue(entry);
-                            for (const k in nv) {
-                                if (table[k] !== undefined && k !== '_pk') {
-                                    const v = nv[k];
-                                    if (v !== undefined) {
-                                        table[k][idx] = v;
-                                    }
-                                }
-                            }
+                            const nv = newValue(currentEntry);
+                            updated = _updateRow(idx, currentEntry, nv);
                             break;
                         }
                     }
-
-                    const updatedEntry = _getRowByIndex(idx);
-                    if (updatedEntry) {
-                        // pass entry to trigger
-                        if (triggers['onUpdate']) {
-                            triggers['onUpdate'](entry);
-                        }
-
-                        notifyRowSubscribers('rowUpdate', pk);
+                    if (updated) {
+                        // notify subscribers of changes to row and table
+                        notifyRowSubscribers('rowUpdate', currentEntry._pk);
                         notifyTableSubscribers('rowUpdate');
                     }
-                    return updatedEntry;
+                    return updated;
                 }
             }
             return undefined;
@@ -551,8 +569,9 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                     }
                 }
                 if (update) {
-                    const entry = _getRowByIndex(idx);
-                    if (entry) {
+                    const currentEntry = _getRowByIndex(idx);
+                    if (currentEntry) {
+                        let updated: T | undefined = undefined;
                         switch (typeof setValue) {
                             case 'object': {
                                 for (const k in setValue) {
@@ -561,42 +580,22 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                                         return [];
                                     }
                                 }
-                                for (const k in setValue) {
-                                    if (table[k] !== undefined && k !== '_pk') {
-                                        const v = setValue[k];
-                                        if (v !== undefined) {
-                                            table[k][idx] = v;
-                                        }
-                                    }
-                                }
+                                updated = _updateRow(idx, currentEntry, setValue);
                                 break;
                             }
                             case 'function': {
-                                const nv = setValue(entry);
-                                for (const k in nv) {
-                                    if (table[k] !== undefined && k !== '_pk') {
-                                        const v = nv[k];
-                                        if (v !== undefined) {
-                                            table[k][idx] = v;
-                                        }
-                                    }
-                                }
+                                const nv = setValue(currentEntry);
+                                updated = _updateRow(idx, currentEntry, nv);
                                 break;
                             }
                         }
 
-                        const updatedEntry = _getRowByIndex(idx);
-                        if (updatedEntry) {
-                            // pass entry to trigger
-                            if (triggers['onUpdate']) {
-                                triggers['onUpdate'](entry);
-                            }
-
-                            notifyRowSubscribers('rowUpdate', updatedEntry._pk);
+                        if (updated) {
+                            notifyRowSubscribers('rowUpdate', currentEntry._pk);
                             if (!batch) {
                                 notifyTableSubscribers('rowUpdate');
                             }
-                            entries.push(updatedEntry);
+                            entries.push(updated);
                         }
                     }
                 }
@@ -778,8 +777,11 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         onAfterDelete(fn: (v: T) => void) {
             triggerAfterDelete = fn;
         },
-        onUpdate(fn: (v: T) => void) {
-            triggers['onUpdate'] = fn;
+        onBeforeUpdate(fn: (currentValue: T, newValue: T) => boolean | void) {
+            triggerBeforeUpdate = fn;
+        },
+        onAfterUpdate(fn: (previousValue: T, newValue: T) => void) {
+            triggerAfterUpdate = fn;
         },
     };
 }

@@ -92,9 +92,16 @@ s.tables.customers.onAfterDelete((v) => {
     s.tables.orders.deleteRows({ customerID: v.customerID });
 });
 
-s.tables.customers.onUpdate((v) => {
-    if (v.customerID === 10) {
+s.tables.customers.onAfterUpdate((_, nv) => {
+    if (nv.customerID === 10) {
         s.singles.numUpdates.set(s.singles.numUpdates.get() + 1);
+    }
+});
+
+s.tables.customers.onBeforeUpdate((cv, nv) => {
+    if (cv.firstName === 'UpdateMe') {
+        nv.firstName = 'Changed before update';
+        return nv;
     }
 });
 
@@ -445,5 +452,14 @@ describe('Testing table triggers', () => {
         expect(c).toEqual(false);
         const nv = tables.customers.getRowCount();
         expect(n).toEqual(nv);
+    });
+    it('should update the value based on "onBeforeUpdate" trigger', () => {
+        const c = tables.customers.insertRow({ customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' });
+        expect(c).toBeTruthy();
+        if (c) {
+            const nv = tables.customers.updateRow(c._pk, { firstName: 'Something else' });
+            expect(nv).toBeTruthy();
+            expect(nv?.firstName).toEqual('Changed before update');
+        }
     });
 });
