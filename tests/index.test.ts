@@ -1,6 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { extract, CreateQueue, CreateSingle, CreateTable } from '../src';
-import type { Store, Table, Queue, Single } from '../src';
+import { extract, CreateQueue, CreateSingle, CreateTable, type Store, type Table, type Queue, type Single } from '../src';
 
 type Customer = {
     _pk: number;
@@ -83,7 +82,13 @@ s.tables.customers.onBeforeInsert((v) => {
     }
 });
 
-s.tables.customers.onDelete((v) => {
+s.tables.customers.onBeforeDelete((v) => {
+    if (v.firstName === 'OmitMe') {
+        return false;
+    }
+});
+
+s.tables.customers.onAfterDelete((v) => {
     s.tables.orders.deleteRows({ customerID: v.customerID });
 });
 
@@ -426,12 +431,19 @@ describe('Testing table triggers', () => {
         const nv = tables.customers.getRowCount();
         expect(n).toEqual(nv);
     });
-    it('should alter the row basd on "onBeforeInsert" trigger', () => {
+    it('should alter the row based on "onBeforeInsert" trigger', () => {
         const n = tables.customers.getRowCount();
         const c = tables.customers.insertRow({ customerID: 10, firstName: 'Happy', lastName: 'ChangeMe' });
         expect(c).toBeTruthy();
         const nv = tables.customers.getRowCount();
         expect(nv).toEqual(n + 1);
         expect(c?.lastName).toEqual('Changed');
+    });
+    it('should not delete the row based on "onBeforeDelete" trigger', () => {
+        const n = tables.customers.getRowCount();
+        const c = tables.customers.deleteRow({ firstName: 'OmitMe' });
+        expect(c).toEqual(false);
+        const nv = tables.customers.getRowCount();
+        expect(n).toEqual(nv);
     });
 });

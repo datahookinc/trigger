@@ -47,17 +47,18 @@ export type Table<T extends TableEntry> = {
     use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
     useRow(pk: PK, notify?: RowNotify[]): T | undefined;
     insertRow(r: Omit<T, '_pk'>): T | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
-    insertRows(r: Omit<T, '_pk'>[], batch?: boolean): T[];
+    insertRows(r: Omit<T, '_pk'>[], batchNotify?: boolean): T[];
     onBeforeInsert(fn: (v: T) => T | void | boolean): void;
     onAfterInsert(fn: (v: T) => void): void;
     deleteRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): boolean; // delete the first row that matches the PK, the property values provided, or the function
     deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batch?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
-    onDelete(fn: (v: T) => void): void;
+    onBeforeDelete(fn: (v: T) => boolean | void): void;
+    onAfterDelete(fn: (v: T) => void): void;
     updateRow(pk: PK, newValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>)): T | undefined;
     updateRows(
         setValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>),
         where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean),
-        batch?: boolean,
+        batchNotify?: boolean,
     ): T[];
     onUpdate(fn: (v: T) => void): void;
     getRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): T[]; // returns all rows that match
@@ -73,6 +74,8 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
     const rowSubscribers: Record<PK, Subscribe<T | undefined>[]> = {};
     let triggerBeforeInsert: undefined | ((v: T) => T | void | boolean) = undefined;
     let triggerAfterInsert: undefined | ((v: T) => void) = undefined;
+    let triggerBeforeDelete: undefined | ((v: T) => boolean | void) = undefined;
+    let triggerAfterDelete: undefined | ((v: T) => void) = undefined;
     const triggers: { [Property in TableTrigger]?: (v: T) => void } = {};
     let autoPK: PK = 0;
 
@@ -232,6 +235,26 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         return entry;
     };
 
+    const _deleteRow = (idx: number, entry: T): boolean => {
+        if (triggerBeforeDelete) {
+            const v = triggerBeforeDelete(entry);
+            // user has elected to abort the delete
+            if (v === false) {
+                return false;
+            }
+        }
+
+        for (const k of columnNames) {
+            table[k].splice(idx, 1);
+        }
+
+        if (triggerAfterDelete) {
+            triggerAfterDelete(entry);
+        }
+
+        return true;
+    };
+
     return {
         use(where: ((v: T) => boolean) | null, notify: TableNotify[] = []): T[] {
             const [v, setV] = useState<T[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
@@ -291,18 +314,18 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
             }
             return entry;
         },
-        insertRows(newRows: Omit<T, '_pk'>[], batch = true): T[] {
+        insertRows(newRows: Omit<T, '_pk'>[], batchNotify = true): T[] {
             const entries: T[] = [];
             for (let i = 0, len = newRows.length; i < len; i++) {
                 const entry = _insertRow(newRows[i]);
                 if (entry) {
-                    if (!batch) {
+                    if (!batchNotify) {
                         notifyTableSubscribers('rowInsert');
                     }
                     entries.push(entry);
                 }
             }
-            if (batch) {
+            if (batchNotify) {
                 notifyTableSubscribers('rowInsert');
             }
             return entries;
@@ -349,25 +372,20 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                 if (remove) {
                     const entry = _getRowByIndex(i);
                     if (entry) {
-                        const pk = table._pk[i];
-                        for (const k of columnNames) {
-                            table[k].splice(i, 1);
+                        const deleted = _deleteRow(i, entry);
+                        if (deleted) {
+                            // notify subscribers of changes to row and table
+                            notifyRowSubscribers('rowDelete', entry._pk);
+                            notifyTableSubscribers('rowDelete');
                         }
-                        // pass entry to trigger
-                        if (triggers['onDelete']) {
-                            triggers['onDelete'](entry);
-                        }
-                        // notify subscribers of changes to row and table
-                        notifyRowSubscribers('rowDelete', pk);
-                        notifyTableSubscribers('rowDelete');
-                        return true;
+                        return deleted;
                     }
                     break; // only delete the first instance
                 }
             }
             return false;
         },
-        deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batch = true): number {
+        deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batchNotify = true): number {
             let i = table._pk.length;
             let numRemoved = 0;
             while (i--) {
@@ -415,24 +433,19 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
                 if (remove) {
                     const entry = _getRowByIndex(i);
                     if (entry) {
-                        const pk = table._pk[i];
-                        for (const k of columnNames) {
-                            table[k].splice(i, 1);
+                        const deleted = _deleteRow(i, entry);
+                        if (deleted) {
+                            // notify subscribers of changes to row and table
+                            notifyRowSubscribers('rowDelete', entry._pk);
+                            if (!batchNotify) {
+                                notifyTableSubscribers('rowDelete');
+                            }
+                            numRemoved++;
                         }
-                        // pass entry to trigger
-                        if (triggers['onDelete']) {
-                            triggers['onDelete'](entry);
-                        }
-                        // notify subscribers of changes to row and table
-                        notifyRowSubscribers('rowDelete', pk);
-                        if (!batch) {
-                            notifyTableSubscribers('rowDelete');
-                        }
-                        numRemoved++;
                     }
                 }
             }
-            if (batch) {
+            if (batchNotify) {
                 notifyTableSubscribers('rowDelete');
             }
             return numRemoved;
@@ -759,8 +772,11 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         onAfterInsert(fn: (v: T) => void) {
             triggerAfterInsert = fn;
         },
-        onDelete(fn: (v: T) => void) {
-            triggers['onDelete'] = fn;
+        onBeforeDelete(fn: (v: T) => boolean | void) {
+            triggerBeforeDelete = fn;
+        },
+        onAfterDelete(fn: (v: T) => void) {
+            triggerAfterDelete = fn;
         },
         onUpdate(fn: (v: T) => void) {
             triggers['onUpdate'] = fn;
