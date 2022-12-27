@@ -2,7 +2,7 @@ import { renderHook, act } from '@testing-library/react';
 import { extract, CreateQueue, CreateSingle, CreateTable, type Store, type Table, type Queue, type Single } from '../src';
 
 type Customer = {
-    _pk: number;
+    // _pk: number;
     customerID: number;
     firstName: string;
     lastName: string;
@@ -34,7 +34,7 @@ interface MyStore extends Store {
 
 const s: MyStore = {
     tables: {
-        customers: CreateTable<Customer>({ _pk: [], customerID: [], firstName: [], lastName: [] }),
+        customers: CreateTable<Customer>({ customerID: [], firstName: [], lastName: [] }),
         orders: CreateTable<Order>({ _pk: [], orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
     },
     queues: {

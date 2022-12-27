@@ -24,7 +24,21 @@ type SingleSubscribe<T> = (v: T) => void;
 
 type AllowedPrimitives = string | number | Date | boolean | null;
 
+type UserEntry = { [index: string]: AllowedPrimitives }
 type TableEntry = { [index: string]: AllowedPrimitives } & { _pk: PK };
+
+// type TableEntry2<T> = T & { _pk: PK };
+// type TableEntry2<T> = { [K in Extract<keyof T, string> & { _pk: number }]: T[K] } ;
+type TableEntry2<T> = { [K in keyof T]: T[K] } & { _pk: number } ;
+// type TableEntry2 = ReturnType<<T extends UserEntry>() => T> & { _pk: PK };
+// type TableEntry2 = ReturnType<<T extends UserEntry>() => T & { _pk: PK }>;
+
+
+
+// might be able to use Omit<Type, Keys> to remove the keys from T that don't belong to UserEntry?
+
+// [K in keyof Omit<T, 'onInsert'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractTables<T[K]> : T[K]
+// type TableEntry3<T> = Extract<keyof T & { _pk: PK}, string>;
 
 export interface Store {
     tables?: {
@@ -39,8 +53,6 @@ export interface Store {
 }
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
-
-// It is yelling because it is true, I need some way of saying the returned value has to have exactly the same properties as the received values
 
 export type Table<T extends TableEntry> = {
     use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[];
@@ -67,12 +79,14 @@ export type Table<T extends TableEntry> = {
 };
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> {
-    const table: DefinedTable<T> = t;
+export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<T & { _pk: PK }> {
+    // const table: DefinedTable<TableEntry2> = { _pk: [], ...t }; // manually add the "_pk" so the user does not need to
+    const table: DefinedTable<T & { _pk: number }> = { _pk: [], ...t } as DefinedTable<T & { _pk: number }>; // manually add the "_pk" so the user does not need to
+    // const table: DefinedTable<T> = { _pk: [], ...t }; // manually add the "_pk" so the user does not need to
     const columnNames: (keyof T)[] = Object.keys(t);
     const tableSubscribers: Subscribe<T[]>[] = [];
     const rowSubscribers: Record<PK, Subscribe<T | undefined>[]> = {};
-    let triggerBeforeInsert: undefined | ((v: T) => T | void | boolean) = undefined;
+    let triggerBeforeInsert: undefined | ((v: TableEntry2<T>) => TableEntry2<T> | void | boolean) = undefined;
     let triggerAfterInsert: undefined | ((v: T) => void) = undefined;
     let triggerBeforeDelete: undefined | ((v: T) => boolean | void) = undefined;
     let triggerAfterDelete: undefined | ((v: T) => void) = undefined;
@@ -80,16 +94,20 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
     let triggerAfterUpdate: undefined | ((pv: T, nv: T) => void) = undefined;
     let autoPK: PK = 0;
 
-    const _getAllRows = (): T[] => {
+    const _getAllRows = (): TableEntry2<T>[] => {
         const entries: Record<string, AllowedPrimitives>[] = [];
         for (let i = 0, numValues = table['_pk'].length; i < numValues; i++) {
-            const entry = {} as T;
+            const entry = {} as T; // I think the problem is that T extends UserEntry, so it could have more values than are available in UserEntry
             for (let j = 0, numArrays = columnNames.length; j < numArrays; j++) {
+                const name = columnNames[j];
+                if (name in table) {
+                    table[name] = [];
+                }
                 entry[columnNames[j]] = table[columnNames[j]][i];
             }
             entries.push(entry);
         }
-        return entries as T[];
+        return entries as TableEntry2<T>[];
     };
 
     const _getRowCount = (): number => {
@@ -102,10 +120,11 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
      * @param idx
      * @returns TableRow | undefined
      */
-    function _getRowByIndex(idx: number): T | undefined {
+    function _getRowByIndex(idx: number): TableEntry2 | undefined {
         if (idx < _getRowCount()) {
-            const entry = {} as T;
+            const entry = {} as TableEntry2;
             for (const k of columnNames) {
+                // keyof T cannot be used to index type TableEntry2
                 entry[k] = table[k][idx];
             }
             return entry;
@@ -200,12 +219,18 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         }
     };
 
-    const _insertRow = (newRow: Omit<T, '_pk'>): T | undefined => {
+    const _insertRow = (newRow: T): TableEntry2<T> | undefined => {
         const newPK = autoPK + 1;
         let entry = {
             _pk: newPK,
             ...newRow,
-        } as T;
+        } as TableEntry2<T>;
+
+        // let entry = {
+        //     _pk: newPK,
+        //     ...newRow,
+        // } as T; // ISSUE: adding the _pk no longer lets it do an Extract for some reason, but omitting the _pk is going to cause a lot of problems...
+
 
         if (triggerBeforeInsert) {
             const v = triggerBeforeInsert(entry);
@@ -224,6 +249,18 @@ export function CreateTable<T extends TableEntry>(t: DefinedTable<T>): Table<T> 
         }
         ++autoPK; // commit change to primary key
         for (const k in entry) {
+            const y = table[k]; // problem here is it is just a string, not an extract
+
+            /**
+             * const y: DefinedTable<T>[Extract<keyof T, string>]
+             *
+            */
+
+            if (k in table) {
+                table[k].push(entry[k])
+            }
+
+
             table[k].push(entry[k]);
         }
 
