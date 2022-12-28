@@ -15,22 +15,20 @@ In trigger, you start by defining the structure (types) of your store; your stor
 
 ```
 type Customer = {
-    _pk: number;
     customerID: number;
     firstName: string;
     lastName: string;
 }
 
 type Order = {
-    _pk: number;
     orderID: number;
-    customerID: Customer["_pk"];
+    customerID: Customer["customerID"];
     orderDate: Date;
     orderLocation: string;
 }
 ```
 
-Notice how the **Order** table's _customerID_ property refers to the **Customer** table's _\_pk_ property. This is analogous to a foreign key in a database table. This makes it easier to understand the relationship; however, the regular _number_ type could have also been used.
+Notice how the **Order** table's _customerID_ property refers to the **Customer** table's _\_customerID_ property. This is analogous to a foreign key in a database table. This makes it easier to understand the relationship; however, the regular _number_ type could have also been used.
 
 In trigger, your tables must be "flat". This means table values can only be of the following types:
 
@@ -57,16 +55,14 @@ import { extract, CreateQueue, CreateSingle, CreateTable } from '@datahook/trigg
 import type { Store, Table, Queue, Single } from '@datahook/trigger';
 
 type Customer = {
-    _pk: number;
     customerID: number;
     firstName: string;
     lastName: string;
 };
 
 type Order = {
-    _pk: number;
     orderID: number;
-    customerID: Customer['_pk'];
+    customerID: Customer['customerID'];
     orderDate: Date;
     orderLocation: string;
 };
@@ -89,8 +85,8 @@ interface MyStore extends Store {
 
 const s: MyStore = {
     tables: {
-        customers: CreateTable<Customer>({ _pk: [], customerID: [], firstName: [], lastName: [] }),
-        orders: CreateTable<Order>({ _pk: [], orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
+        customers: CreateTable<Customer>({ customerID: [], firstName: [], lastName: [] }),
+        orders: CreateTable<Order>({ orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
     },
     queues: {
         eventQueue: CreateQueue<string>(),
@@ -155,43 +151,51 @@ export default MyCustomerList;
 
 In the above example, `tables.customers.use(null, ['rowInsert'])` means: "every time a new row is inserted, give me all of the rows in the table and rerender the component". The `null` can be replaced by a function that returns a `boolean` value for whether or not a row should be included in the result set.
 
+### 3. The _\_pk_ Property
+
+When you add a table to your store, Trigger will automatically create a column called "_\_pk_". This column is used internally by the library as a surrogate key to properly reference each row in the table. When interacting with Trigger, the rows returned will include the "_\_pk_" property as a way for you to uniquely identify rows in the table. This can be convenient as may of Trigger's table functions include an option for supplying the "_\_pk_" of the row you want to interact with. You are unable to manually update the "_\_pk_" property, and if you provide initial values to "_\_pk_" when creating your table, they will be overwritten and reset to a sequence starting a 0. If you have your own ids or surrogate keys that uniquely identify the row, then you can safely ignore the "_\_pk_" property.
+
 # API
+
+**Note**: The `TableEntry<T>` type represents your table type with the added "_\_pk_" property. So, if your table type is `{ customer: string }`, then the corresponding `TableEntry<T>` type is `{ _pk: number, customer: string}`
+
+**Note**: methods starting with `use` will cause your component to rerender. No other method will cause your component to rerender.
 
 ## Tables
 
-`use(where: ((v: T) => boolean) | null, notify?: TableNotify[]): T[]`: will rerender your component. If notify is ommitted, the component will rerender for all events. Supported events are: `'rowInsert' | 'rowUpdate' | 'rowDelete'. If a filtering function is not provided, this will return all rows in the table.
+`use(where: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];`: will rerender your component. If notify is ommitted, the component will rerender for all events. Supported events are: `'rowInsert' | 'rowUpdate' | 'rowDelete'. If a filtering function is not provided, this will return all rows in the table.
 
-`useRow(pk: PK, notify?: RowNotify[]): T | undefined`: will rerender your component. If notify is ommitted, the component will rerender for all events. Supported events are: `'rowDelete' | 'rowUpdate'`. User supplies the primary key (_pk) for the row they want to use.
+`useRow(pk: PK, notify?: RowNotify[]): TableEntry<T> | undefined`: will rerender your component. If notify is ommitted, the component will rerender for all events. Supported events are: `'rowDelete' | 'rowUpdate'`. User supplies the primary key (_pk) for the row they want to use.
 
-`insertRow(r: Omit<T, '_pk'>): T | undefined`: insert row into the table. The user does not need to provide the _\_pk_ property as this will be handled automatically. This will return the newly inserted row or _undefined_ if the user has a **beforeInsertTrigger** attached to the table that aborts the insert.
+`insertRow(r: T): TableEntry<T> | undefined`: insert row into the table. The user does not need to provide the _\_pk_ property as this will be handled automatically. This will return the newly inserted row or _undefined_ if the user has a **beforeInsertTrigger** attached to the table that aborts the insert.
 
-`insertRows(r: Omit<T, '_pk'>[], batchNotify?: boolean): T[]`: insert multiple rows into the table. The user does not need to provide the _\_pk_ property for each row as this will be handled automatically. This will return the newly inserted rows. Any attached triggers (e.g., **beforeInsertTrigger**) will be fired for each row. By default, components with a matching `use()` hook will only be rerendered after all rows are inserted (batch). To override this behaviour, pass `false` as the second argument, instructing trigger to rerenders components on each insert, which is the same behaviour as manually calling `insertRow()` multiple times.
+`insertRows(r: T[], batchNotify?: boolean): TableEntry<T>[]`: insert multiple rows into the table. The user does not need to provide the _\_pk_ property for each row as this will be handled automatically. This will return the newly inserted rows. Any attached triggers (e.g., **beforeInsertTrigger**) will be fired for each row. By default, components with a matching `use()` hook will only be rerendered after all rows are inserted (batch). To override this behaviour, pass `false` as the second argument, instructing trigger to rerenders components on each insert, which is the same behaviour as manually calling `insertRow()` multiple times.
 
-`onBeforeInsert(fn: (v: T) => T | void | boolean): void`: a trigger function that can be attached to the table. The function will receive the row being inserted, allowing changes to be made to the value prior to insertion. The user can cancel the insert by returning `false`. Returning nothing or `true` will ignore any changes made in the function and insert the row as originally intended.
+`onBeforeInsert(fn: (v: TableEntry<T>) => TableEntry<T> | void | boolean): void`: a trigger function that can be attached to the table. The function will receive the row being inserted, allowing changes to be made to the value prior to insertion. The user can cancel the insert by returning `false`. Returning nothing or `true` will ignore any changes made in the function and insert the row as originally intended.
 
-`onAfterInsert(fn: (v: T) => void): void`: a trigger function that can be attached to the table. The function will receive the newly inserted row.
+`onAfterInsert(fn: (v: TableEntry<T>) => void): void`: a trigger function that can be attached to the table. The function will receive the newly inserted row.
 
-`deleteRow(where: PK | Partial<Omit<T, '_pk'>> | ((v: T) => boolean)): boolean`: will delete the first matching row, returning `true` if a row was deleted and `false` if a row was not deleted. The primary use of this function is for when the user knows the primary key (_pk) of the row to be deleted. The user can pass-in the primary key (_pk) of the row to delete, an object to match rows based on equality of each property value, or a function that returns `true` if the row should be deleted and `false` if it should not be deleted.
+`deleteRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): boolean`: will delete the first matching row, returning `true` if a row was deleted and `false` if a row was not deleted. The primary use of this function is for when the user knows the primary key (_pk) of the row to be deleted. The user can pass-in the primary key (_pk) of the row to delete, an object to match rows based on equality of each property value, or a function that returns `true` if the row should be deleted and `false` if it should not be deleted.
 
-`deleteRows(where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batchNotify?: boolean): number`: will return the number of rows that have been deleted, or 0 if no rows were deleted. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be deleted and `false` if it should not be deleted. Any attached triggers (e.g., **onDelete**) will be fired for each row. By default, components with a matching `use()` hook will only be rerendered after all rows are deleted (batch). To override this behaviour, pass `false` as the second argument, instructing trigger to rerender components on each delete, which is the same behaviour as manually calling `deleteRow()` multiple times. Components with a matching `useRow()` hook will be rerendered immediately if the row they are subscribed to is deleted.
+`deleteRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean), batchNotify?: boolean): number`: will return the number of rows that have been deleted, or 0 if no rows were deleted. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be deleted and `false` if it should not be deleted. Any attached triggers (e.g., **onDelete**) will be fired for each row. By default, components with a matching `use()` hook will only be rerendered after all rows are deleted (batch). To override this behaviour, pass `false` as the second argument, instructing trigger to rerender components on each delete, which is the same behaviour as manually calling `deleteRow()` multiple times. Components with a matching `useRow()` hook will be rerendered immediately if the row they are subscribed to is deleted.
 
-`onBeforeDelete(fn: (v: T) => boolean | void): void`: a trigger function that can be attached to the table. The function will receive the row being deleted. The user can cancel the deletion by returning `false`. Returning nothing or `true` will delete the row.
+`onBeforeDelete(fn: (v: TableEntry<T>) => boolean | void): void`: a trigger function that can be attached to the table. The function will receive the row being deleted. The user can cancel the deletion by returning `false`. Returning nothing or `true` will delete the row.
 
-`onAfterDelete(fn: (v: T) => void): void`: a trigger function that can be attached to the table. The function will receive the deleted row.
+`onAfterDelete(fn: (v: TableEntry<T>) => void): void`: a trigger function that can be attached to the table. The function will receive the deleted row.
 
-`updateRow(pk: PK, newValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>)): T | undefined`: will return `true` if the update was successful and `false` if not. The user passes in the primary key (_pk) to update, and an object with the new property values.
+`updateRow(pk: PK, newValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>)): TableEntry<T> | undefined`: will return `true` if the update was successful and `false` if not. The user passes in the primary key (_pk) to update, and an object with the new property values.
 
-`updateRows(setValue: Partial<Omit<T, '_pk'>> | ((v: T) => Partial<Omit<T, '_pk'>>), where?: Partial<Omit<T, '_pk'>> | ((v: T) => boolean), batchNotify?: boolean): T[]`: will return a list of successfully updated rows. The user provides the new values as an object, a function that returns the new values. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be updated and `false` if it should not be updated. Any attached triggers (e.g., **onUpdate**) will be fired for each row. By default, components with a matching `use()` hook will only be rerendered after all rows are updated (batch). To override this behaviour, pass `false` as the third argument, instructing trigger to rerender components on each update, which is the same behaviour as manually calling `updateRow()` multiple times. Components with a matching `useRow()` hook will be rerendered immediately if the row they are subscribed to is updated.
+`updateRows(setValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>), where?: Partial<T> | ((v: TableEntry<T>) => boolean), batchNotify?: boolean,): TableEntry<T>[]`: will return a list of successfully updated rows. The user provides the new values as an object, a function that returns the new values. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be updated and `false` if it should not be updated. Any attached triggers (e.g., **onUpdate**) will be fired for each row. By default, components with a matching `use()` hook will only be rerendered after all rows are updated (batch). To override this behaviour, pass `false` as the third argument, instructing trigger to rerender components on each update, which is the same behaviour as manually calling `updateRow()` multiple times. Components with a matching `useRow()` hook will be rerendered immediately if the row they are subscribed to is updated.
 
-`onBeforeUpdate(fn: (currentValue: T, newValue: T) => T | void | boolean): void`: a trigger function that can be attached to the table. The function will receive the row's current value and the new value, allowing changes to be made to the value prior to updating. The user can cancel the update by returning `false`. Returning nothing or `true` will ignore any changes made in the function and update the row as originally intended.
+`onBeforeUpdate(fn: (currentValue: TableEntry<T>, newValue: TableEntry<T>) => TableEntry<T> | void | boolean): void`: a trigger function that can be attached to the table. The function will receive the row's current value and the new value, allowing changes to be made to the value prior to updating. The user can cancel the update by returning `false`. Returning nothing or `true` will ignore any changes made in the function and update the row as originally intended.
 
-`onAfterUpdate(fn: (previousValue: T, newValue: T) => void): void`: a trigger function that can be attached to the table. The function will receive the row's previous value and the row's new value.
+`onAfterUpdate(fn: (previousValue: TableEntry<T>, newValue: TableEntry<T>) => void): void`: a trigger function that can be attached to the table. The function will receive the row's previous value and the row's new value.
 
-`getRows(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T[]`: will return all rows that match. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be returned and `false` if it should not be returned. This function does not cause your component to rerender. Passing in nothing will return all rows.
+`getRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T>[]`: will return all rows that match. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be returned and `false` if it should not be returned. This function does not cause your component to rerender. Passing in nothing will return all rows.
 
-`getRow(where: PK | { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): T | undefined`: a convenience function for returning the first matching row. The user can pass-in the primary key (_pk) to find, an object to match rows based on equality of each property value, or a function that returns `true` if the row should be returned and `false` if it should not be returned. If no row can be found, `undefined` is returned. 
+`getRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T> | undefined`: a convenience function for returning the first matching row. The user can pass-in the primary key (_pk) to find, an object to match rows based on equality of each property value, or a function that returns `true` if the row should be returned and `false` if it should not be returned. If no row can be found, `undefined` is returned. 
 
-`getRowCount(where?: { [Property in keyof T as Exclude<Property, '_pk'>]?: T[Property] } | ((v: T) => boolean)): number`: returns the current number of rows in the table. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be counted and `false` if it should not be counted. This function does not cause your component to rerender. Passing in nothing will count all rows in the table
+`getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number`: returns the current number of rows in the table. The user can pass-in an object to match rows based on equality of each property value, or a function that returns `true` if the row should be counted and `false` if it should not be counted. This function does not cause your component to rerender. Passing in nothing will count all rows in the table
 
 ## Singles
 
@@ -216,5 +220,3 @@ In the above example, `tables.customers.use(null, ['rowInsert'])` means: "every 
 `onGet(fn: (v: T) => void): void`: a trigger function that can be attached to a queue. The function will recieve will receive the value each time `get()` is called.
 
 `size(): number`: will return the number of items in the queue
-
-Note: methods starting with `use` will cause your component to rerender. No other method will cause your component to rerender.
