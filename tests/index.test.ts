@@ -14,10 +14,17 @@ type Order = {
     orderLocation: string;
 };
 
+type Company = {
+    companyID: number;
+    name: string;
+    location: string;
+}
+
 interface MyStore extends Store {
     tables: {
         customers: Table<Customer>;
         orders: Table<Order>;
+        company: Table<Company>;
     };
     queues: {
         eventQueue: Queue<string>;
@@ -34,6 +41,7 @@ const s: MyStore = {
     tables: {
         customers: CreateTable<Customer>({ customerID: [], firstName: [], lastName: [] }),
         orders: CreateTable<Order>({ orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
+        company: CreateTable<Company>({ companyID: [1, 2, 3], name: ['abc', 'def', 'ghi'], location: ['CA', 'US', 'EU'] }),
     },
     queues: {
         eventQueue: CreateQueue<string>(),
@@ -471,6 +479,18 @@ describe('Testing table triggers', () => {
             const nv = tables.customers.updateRow(c._pk, { firstName: 'Something else' });
             expect(nv).toBeTruthy();
             expect(nv?.firstName).toEqual('Changed before update');
+        }
+    });
+});
+
+describe('Testing table initial values', () => {
+    it('should have the proper _pk when initializing with values', () => {
+        const { result } = renderHook(() => tables.company.use(null));
+        expect(result).toBeTruthy();
+        if (result) {
+            expect(result.current.length).toBe(3);
+            expect(result.current.slice(-1)[0]._pk).toBe(3);
+            expect(result.current[0].location).toBe('CA');
         }
     });
 });

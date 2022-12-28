@@ -69,9 +69,43 @@ export type Table<T extends UserEntry> = {
     getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number;
 };
 
+// _checkTable throws an error if the table is not instantiated correctly.
+// if instantiated correctly, it returns the number of initialized elements for seeding the autoPK for the table
+function _checkTable<T>(t: DefinedTable<T>): number {
+
+    // check that the user provided at least one column that is not the '_pk'
+    if (Object.keys(t).filter(d => d !== '_pk').length === 0) {
+        throw new Error(`invalid initial arguments when creating table; cannot create an empty table`);
+    }
+
+    // check if user provided initial values and if each array has the same number
+    let nInitialLength = -1;
+    for (const k in t) {
+        // _pk is automtically reset, so we can ignore it here
+        if (k === '_pk') {
+            continue;
+        }
+        if (nInitialLength === -1) {
+            nInitialLength = t[k].length;
+        }
+        if (nInitialLength !== t[k].length) {
+            throw new Error(`invalid initial arguments when creating table; column "${k}" has improper length of ${t[k].length}, which does not match the length of the other columns provided`);
+        }
+    }
+    
+    return nInitialLength;
+}
+
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
 export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<TableEntry<T>> {
-    const initialValues = { ...t, _pk: [] } as DefinedTable<TableEntry<T>>; // put PK last to override it if the user passes it in erroneously
+    const nInitialLength = _checkTable(t);
+    // setup the primary keys (accounting for any initial values)
+    let autoPK: PK = 0;
+    const initialPK: PK[] = [];
+    for (let i = 0; i < nInitialLength; i++) {
+        initialPK[i] = ++autoPK;
+    }
+    const initialValues = { ...t, _pk: initialPK } as DefinedTable<TableEntry<T>>; // put PK last to override it if the user passes it in erroneously
     const table: DefinedTable<TableEntry<T>> = initialValues; // manually add the "_pk" so the user does not need to
     const columnNames: (keyof T)[] = Object.keys(initialValues); // TODO: this is technically wrong because it does not include "_pk" as a column name in the type
     const tableSubscribers: Subscribe<TableEntry<T>[]>[] = [];
@@ -82,7 +116,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
     let triggerAfterDelete: undefined | ((v: TableEntry<T>) => void) = undefined;
     let triggerBeforeUpdate: undefined | ((cv: TableEntry<T>, nv: TableEntry<T>) => TableEntry<T> | void | boolean) = undefined;
     let triggerAfterUpdate: undefined | ((pv: TableEntry<T>, nv: TableEntry<T>) => void) = undefined;
-    let autoPK: PK = 0;
+    
 
     const _getAllRows = (): TableEntry<T>[] => {
         const entries: TableEntry<T>[] = [];
