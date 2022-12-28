@@ -2,16 +2,14 @@ import { renderHook, act } from '@testing-library/react';
 import { extract, CreateQueue, CreateSingle, CreateTable, type Store, type Table, type Queue, type Single } from '../src';
 
 type Customer = {
-    // _pk: number;
     customerID: number;
     firstName: string;
     lastName: string;
 };
 
 type Order = {
-    _pk: number;
     orderID: number;
-    customerID: Customer['_pk'];
+    customerID: Customer['customerID'];
     orderDate: Date;
     orderLocation: string;
 };
@@ -35,7 +33,7 @@ interface MyStore extends Store {
 const s: MyStore = {
     tables: {
         customers: CreateTable<Customer>({ customerID: [], firstName: [], lastName: [] }),
-        orders: CreateTable<Order>({ _pk: [], orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
+        orders: CreateTable<Order>({ orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
     },
     queues: {
         eventQueue: CreateQueue<string>(),
@@ -228,6 +226,7 @@ describe('Testing Tables', () => {
         expect(result.current[0].firstName).toBe('Billy');
         expect(result.current[1].firstName).toBe('Tammy');
     });
+
     it('should find all table rows when passing an object', () => {
         const { result } = renderHook(() => tables.customers.getRows({ lastName: 'McBilly' }));
         // Note: it is unwise to rely on the rows being returned in a particular order
@@ -244,14 +243,17 @@ describe('Testing Tables', () => {
         );
         expect(result.current.length).toBe(0);
     });
+
     it('should return an empty array when finding all table rows with non-matching object', () => {
         const { result } = renderHook(() => tables.customers.getRows({ firstName: 'Teddy' }));
         expect(result.current.length).toBe(0);
     });
+
     it('should find the table row when passing the PK', () => {
         const result = tables.customers.getRow(1);
         expect(result?.firstName).toBe('Billy');
     });
+
     it('should find the first table row when passing a function', () => {
         const { result } = renderHook(() =>
             tables.customers.getRow((v) => {
@@ -264,12 +266,14 @@ describe('Testing Tables', () => {
             expect(result.current.firstName).toBe('Billy');
         }
     });
+
     it('should find the first table row when passing an object', () => {
         const result = tables.customers.getRow({ lastName: 'McBilly' });
         // Note: it is unwise to rely on the rows being returned in a particular order
         expect(result).toBeTruthy();
         expect(result?.firstName).toBe('Billy');
     });
+
     it('should return undefined when finding a table row with non-matching function', () => {
         const { result } = renderHook(() =>
             tables.customers.getRow((v) => {
@@ -278,14 +282,17 @@ describe('Testing Tables', () => {
         );
         expect(result.current).toBeUndefined();
     });
+
     it('should return undefined when finding a table row with non-matching object', () => {
         const { result } = renderHook(() => tables.customers.getRow({ firstName: 'Teddy' }));
         expect(result.current).toBeUndefined();
     });
+
     it('should return false when deleting a row that cannot be found', () => {
         const deleted = tables.customers.deleteRow(10);
         expect(deleted).toBe(false);
     });
+
     it('should return true when deleting a customer using the primary key', () => {
         const c = tables.customers.getRow({ lastName: 'McBilly' });
         const n = tables.customers.getRowCount();
@@ -299,6 +306,7 @@ describe('Testing Tables', () => {
             tables.customers.insertRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
         }
     });
+
     it('getRows() should return the same number of rows as getRowCount()', () => {
         const n = tables.customers.getRowCount({ lastName: 'McBilly' });
         expect(n).toEqual(2);
@@ -309,6 +317,7 @@ describe('Testing Tables', () => {
         expect(n).toEqual(o.length);
         expect(n).toEqual(o1.length);
     });
+
     it('should return 1 when deleting a customer using the object approach', () => {
         const n = tables.customers.getRowCount();
         const num = tables.customers.deleteRows({ lastName: 'McTammy' });
@@ -318,6 +327,7 @@ describe('Testing Tables', () => {
         // add the row back in for future tests
         tables.customers.insertRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
     });
+
     it('should return 1 when deleting a customer using the function approach', () => {
         const n = tables.customers.getRowCount();
         const num = tables.customers.deleteRows((v) => v.lastName === 'McTammy');
@@ -327,6 +337,7 @@ describe('Testing Tables', () => {
         // add the row back in for future tests
         tables.customers.insertRow({ customerID: 3, firstName: 'Tammy', lastName: 'McTammy' });
     });
+
     it('should delete all rows when the call to deleteTableRows is undefined', () => {
         const n = tables.customers.getRowCount();
         const num = tables.customers.deleteRows();
