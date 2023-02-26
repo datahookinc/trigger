@@ -1,5 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 
+const errorStyling = `
+    background-color: black;
+    padding: 8px;
+    font-family: Roboto, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+`;
+
+function logError(error: string) {
+    console.log(`%c⚡Error in Trigger: %c${error}`, `${errorStyling} border-left: 1px solid yellow; color: red; font-weight: bold`, `${errorStyling} color: white`); 
+}
+
+function newError(error: string): Error {
+    return new Error(`⚡Error in Trigger: ${error}`);
+}
+
 /** Autoincrementing primary key required for tables */
 type PK = number;
 
@@ -74,7 +88,7 @@ export type Table<T extends UserEntry> = {
 function _checkTable<T>(t: DefinedTable<T>): number {
     // check that the user provided at least one column that is not the '_pk'
     if (Object.keys(t).filter((d) => d !== '_pk').length === 0) {
-        throw new Error(`invalid initial arguments when creating table; cannot create an empty table`);
+        throw newError(`invalid initial arguments when creating table; cannot create an empty table`);
     }
 
     // check if user provided initial values and if each array has the same number
@@ -88,7 +102,7 @@ function _checkTable<T>(t: DefinedTable<T>): number {
             nInitialLength = t[k].length;
         }
         if (nInitialLength !== t[k].length) {
-            throw new Error(
+            throw newError(
                 `invalid initial arguments when creating table; column "${k}" has improper length of ${t[k].length}, which does not match the length of the other columns provided`,
             );
         }
@@ -541,7 +555,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                         case 'object': {
                             for (const k in newValue) {
                                 if (!columnNames.includes(k)) {
-                                    console.error(`Invalid column provided "${k}"`);
+                                    logError(`Invalid column provided "${k}"`)
                                     return undefined;
                                 }
                             }
@@ -614,7 +628,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                             case 'object': {
                                 for (const k in setValue) {
                                     if (!columnNames.includes(k)) {
-                                        console.error(`Invalid column provided "${k}"`);
+                                        logError(`Invalid column provided "${k}"`)
                                         return [];
                                     }
                                 }
