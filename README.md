@@ -217,6 +217,6 @@ When you add a table to your store, Trigger will automatically create a column c
 
 `get(): QueueItem<T> | undefined`: will retrieve the item at the head of the queue, or undefined if the queue is currently empty.
 
-`onGet(fn: (v: T) => void): void`: a trigger function that can be attached to a queue. The function will recieve will receive the value each time `get()` is called.
+`onGet(fn: (v: T) => void): void`: a trigger function that can be attached to a queue. The function will receive the value each time `get()` is called.
 
 `size(): number`: will return the number of items in the queue
