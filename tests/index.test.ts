@@ -116,7 +116,7 @@ const { tables, singles, queues } = extract(s);
 
 describe('Testing Tables', () => {
     it('should increment primary keys when inserting new rows', () => {
-        const { result } = renderHook(() => tables.customers.use(null));
+        const { result } = renderHook(() => tables.customers.use());
         act(() => {
             tables.customers.insertRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
             tables.customers.insertRow({ customerID: 2, firstName: 'Sally', lastName: 'WrongLastName' });
@@ -485,7 +485,7 @@ describe('Testing table triggers', () => {
 
 describe('Testing table initial values', () => {
     it('should have the proper _pk when initializing with values', () => {
-        const { result } = renderHook(() => tables.company.use(null));
+        const { result } = renderHook(() => tables.company.use());
         expect(result).toBeTruthy();
         if (result) {
             expect(result.current.length).toBe(3);

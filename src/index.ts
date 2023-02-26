@@ -60,7 +60,7 @@ export interface Store {
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
 
 export type Table<T extends UserEntry> = {
-    use(where: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
+    use(where?: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
     useRow(pk: PK, notify?: RowNotify[]): TableEntry<T> | undefined;
     insertRow(r: T): TableEntry<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(r: T[], batchNotify?: boolean): TableEntry<T>[];
