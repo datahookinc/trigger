@@ -501,7 +501,7 @@ describe('Testing error messages', () => {
             CreateTable({});
         } catch (err: unknown) {
             const errMessage = err as Error;
-            expect(errMessage.message).toBe(`⚡Error in Trigger: invalid initial arguments when creating table; cannot create an empty table`);
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: invalid initial arguments when creating table; cannot create an empty table`);
         }
     });
     it('should return the proper error message when creating a table with mismatched column lengths', () => {
@@ -509,7 +509,7 @@ describe('Testing error messages', () => {
             CreateTable({ name: [1, 2, 3], age: [1, 2] });
         } catch (err: unknown) {
             const errMessage = err as Error;
-            expect(errMessage.message).toBe(`⚡Error in Trigger: invalid initial arguments when creating table; column "age" has improper length of 2, which does not match the length of the other columns provided`);
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: invalid initial arguments when creating table; column "age" has improper length of 2, which does not match the length of the other columns provided`);
         }
     });
 });

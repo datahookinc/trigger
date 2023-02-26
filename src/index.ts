@@ -7,11 +7,11 @@ const errorStyling = `
 `;
 
 function logError(error: string) {
-    console.log(`%c⚡Error in Trigger: %c${error}`, `${errorStyling} border-left: 1px solid yellow; color: red; font-weight: bold`, `${errorStyling} color: white`); 
+    console.log(`%c⚡Error in @datahook/trigger: %c${error}`, `${errorStyling} border-left: 1px solid yellow; color: red; font-weight: bold`, `${errorStyling} color: white`); 
 }
 
 function newError(error: string): Error {
-    return new Error(`⚡Error in Trigger: ${error}`);
+    return new Error(`⚡Error in @datahook/trigger: ${error}`);
 }
 
 /** Autoincrementing primary key required for tables */
