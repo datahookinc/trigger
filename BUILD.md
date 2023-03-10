@@ -21,3 +21,5 @@ This will run the following scripts:
 
 - `prepare`
 - `prepublishOnly`
+
+Note: if asked for a one-time password, it is from your authenticator app

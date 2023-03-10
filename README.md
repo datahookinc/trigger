@@ -9,11 +9,12 @@ Trigger is a data-oriented state management library developed for React and Type
 
 Trigger borrows philosophies and design patterns from database management (e.g., INSERT / UPDATE / DELETE, triggers, transactions, etc.) and spreadsheets; however, it also borrows design patterns from other popular React state management systems to maximize your productivity.
 
+<br/>
 
 `npm i @datahook/trigger`
 
 <br/>
 
-# Documentation
+***
 
 ## 👉 Head over to the [official documentation](https://www.trigger.datahook.ca/)

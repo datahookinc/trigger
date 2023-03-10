@@ -402,7 +402,7 @@ describe('Testing TriggerQueue', () => {
 });
 
 describe('Testing Singles', () => {
-    it('should increment from thte old value', () => {
+    it('should increment from the old value', () => {
         const currentValue = singles.numProductsOutOfStock.get();
         singles.numProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
         const newValue = singles.numProductsOutOfStock.get();
