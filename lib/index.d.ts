@@ -26,7 +26,7 @@ export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
 export type Table<T extends UserEntry> = {
-    use(where: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
+    use(where?: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
     useRow(pk: PK, notify?: RowNotify[]): TableEntry<T> | undefined;
     insertRow(r: T): TableEntry<T> | undefined;
     insertRows(r: T[], batchNotify?: boolean): TableEntry<T>[];
@@ -63,7 +63,8 @@ export type Queue<T> = {
 export declare function CreateQueue<T>(): Queue<T>;
 export type Single<T> = {
     use(): T;
-    set(v: T): boolean;
+    set(newValue: T): T;
+    setFromCurrentValue(fn: (currentValue: T) => T): T;
     onSet(fn: (v: T) => void): void;
     onGet(fn: (v: T) => void): void;
     get(): T;
