@@ -1,7 +1,7 @@
 {
   "name": "@datahook/trigger",
   "version": "0.7.0",
-  "description": "React state management library following data-oriented design principles",
+  "description": "⚡Data-oriented state management for React",
   "keywords": [
     "react",
     "state",
@@ -20,8 +20,8 @@
     "test-build": "jest --silent --rootDir=./tests",
     "build": "tsc",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run test-build && npm run lint",
-    "preversion": "npm run test-build && npm run lint && npm run format",
+    "prepublishOnly": "npm run test-build && npm run format-and-lint",
+    "preversion": "npm run test-build && npm run format-and-lint",
     "version": "npm run build && git add --force -A lib",
     "postversion": "git push && git push --tags",
     "format": "prettier --config .prettierrc --write \"src/**/*.ts\"",
