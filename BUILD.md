@@ -17,5 +17,7 @@ This will run the following scripts:
 
 This will run the following scripts:
 
+`npm publish`
+
 - `prepare`
 - `prepublishOnly`
