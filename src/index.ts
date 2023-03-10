@@ -1,5 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 
+const errorStyling = `
+    background-color: black;
+    padding: 8px;
+    font-family: Roboto, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+`;
+
+function logError(error: string) {
+    console.log(`%c⚡Error in @datahook/trigger: %c${error}`, `${errorStyling} border-left: 1px solid yellow; color: red; font-weight: bold`, `${errorStyling} color: white`); 
+}
+
+function newError(error: string): Error {
+    return new Error(`⚡Error in @datahook/trigger: ${error}`);
+}
+
 /** Autoincrementing primary key required for tables */
 type PK = number;
 
@@ -46,7 +60,7 @@ export interface Store {
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
 
 export type Table<T extends UserEntry> = {
-    use(where: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
+    use(where?: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
     useRow(pk: PK, notify?: RowNotify[]): TableEntry<T> | undefined;
     insertRow(r: T): TableEntry<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(r: T[], batchNotify?: boolean): TableEntry<T>[];
@@ -74,7 +88,7 @@ export type Table<T extends UserEntry> = {
 function _checkTable<T>(t: DefinedTable<T>): number {
     // check that the user provided at least one column that is not the '_pk'
     if (Object.keys(t).filter((d) => d !== '_pk').length === 0) {
-        throw new Error(`invalid initial arguments when creating table; cannot create an empty table`);
+        throw newError(`invalid initial arguments when creating table; cannot create an empty table`);
     }
 
     // check if user provided initial values and if each array has the same number
@@ -88,7 +102,7 @@ function _checkTable<T>(t: DefinedTable<T>): number {
             nInitialLength = t[k].length;
         }
         if (nInitialLength !== t[k].length) {
-            throw new Error(
+            throw newError(
                 `invalid initial arguments when creating table; column "${k}" has improper length of ${t[k].length}, which does not match the length of the other columns provided`,
             );
         }
@@ -541,7 +555,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                         case 'object': {
                             for (const k in newValue) {
                                 if (!columnNames.includes(k)) {
-                                    console.error(`Invalid column provided "${k}"`);
+                                    logError(`Invalid column provided "${k}"`)
                                     return undefined;
                                 }
                             }
@@ -614,7 +628,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                             case 'object': {
                                 for (const k in setValue) {
                                     if (!columnNames.includes(k)) {
-                                        console.error(`Invalid column provided "${k}"`);
+                                        logError(`Invalid column provided "${k}"`)
                                         return [];
                                     }
                                 }
@@ -878,7 +892,9 @@ export function CreateQueue<T>(): Queue<T> {
 
 export type Single<T> = {
     use(): T;
-    set(v: T): boolean;
+    // Note: See this thread for more information about working around the call signature: https://github.com/microsoft/TypeScript/issues/37663 for why (newValue: T | ((currentValue: T) => T)): T won't work
+    set(newValue: T): T; // this is not fine
+    setFromCurrentValue(fn: (currentValue: T) => T): T;
     onSet(fn: (v: T) => void): void;
     onGet(fn: (v: T) => void): void;
     get(): T;
@@ -928,13 +944,22 @@ export function CreateSingle<T>(s: T): Single<T> {
             }
             return single;
         },
-        set(v: T): boolean {
+        set(newValue: T): T {
             if (triggers['onSet']) {
                 triggers['onSet'](single);
             }
+            notifySubscribers(newValue); // we pass the value to save extra function calls within notifySingleSubscribers
+            single = newValue;
+            return single;
+        },
+        setFromCurrentValue(fn: ((currentValue: T) => T)): T {
+            if (triggers['onSet']) {
+                triggers['onSet'](single);
+            }
+            const v = fn(single);
             notifySubscribers(v); // we pass the value to save extra function calls within notifySingleSubscribers
             single = v;
-            return true;
+            return single;
         },
         onSet(fn: (v: T) => void) {
             triggers['onSet'] = fn;

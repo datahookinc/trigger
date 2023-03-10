@@ -64,13 +64,11 @@ s.queues.eventQueue.onGet(() => {
 });
 
 s.singles.numProductsOutOfStock.onSet(() => {
-    const v = singles.countChangesToNumProductsOutOfStock.get();
-    singles.countChangesToNumProductsOutOfStock.set(v + 1);
+    singles.countChangesToNumProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
 });
 
 s.singles.numProductsOutOfStock.onGet(() => {
-    const v = singles.countChangesToNumProductsOutOfStock.get();
-    singles.countChangesToNumProductsOutOfStock.set(v + 1);
+    singles.countChangesToNumProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
 });
 
 s.tables.customers.onAfterInsert((v) => {
@@ -116,7 +114,7 @@ const { tables, singles, queues } = extract(s);
 
 describe('Testing Tables', () => {
     it('should increment primary keys when inserting new rows', () => {
-        const { result } = renderHook(() => tables.customers.use(null));
+        const { result } = renderHook(() => tables.customers.use());
         act(() => {
             tables.customers.insertRow({ customerID: 1, firstName: 'Billy', lastName: 'McBilly' });
             tables.customers.insertRow({ customerID: 2, firstName: 'Sally', lastName: 'WrongLastName' });
@@ -403,10 +401,21 @@ describe('Testing TriggerQueue', () => {
     });
 });
 
+describe('Testing Singles', () => {
+    it('should increment from thte old value', () => {
+        const currentValue = singles.numProductsOutOfStock.get();
+        singles.numProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
+        const newValue = singles.numProductsOutOfStock.get();
+        expect(newValue).toEqual(currentValue + 1);
+        // reset count for trigger tests
+        singles.countChangesToNumProductsOutOfStock.set(0);
+    });
+});
+
 describe('Testing Single triggers', () => {
     it('should trigger an increment to countChangesToNumProductsOutOfStock when numProductsOutOfStock is set', () => {
-        const ok = singles.numProductsOutOfStock.set(100);
-        expect(ok).toEqual(true);
+        const v = singles.numProductsOutOfStock.set(100);
+        expect(v).toEqual(100);
         singles.numProductsOutOfStock.set(200);
         singles.numProductsOutOfStock.set(300);
         const count = singles.countChangesToNumProductsOutOfStock.get();
@@ -485,12 +494,31 @@ describe('Testing table triggers', () => {
 
 describe('Testing table initial values', () => {
     it('should have the proper _pk when initializing with values', () => {
-        const { result } = renderHook(() => tables.company.use(null));
+        const { result } = renderHook(() => tables.company.use());
         expect(result).toBeTruthy();
         if (result) {
             expect(result.current.length).toBe(3);
             expect(result.current.slice(-1)[0]._pk).toBe(3);
             expect(result.current[0].location).toBe('CA');
+        }
+    });
+});
+
+describe('Testing error messages', () => {
+    it('should return the proper error message when creating an empty table', () => {
+        try {
+            CreateTable({});
+        } catch (err: unknown) {
+            const errMessage = err as Error;
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: invalid initial arguments when creating table; cannot create an empty table`);
+        }
+    });
+    it('should return the proper error message when creating a table with mismatched column lengths', () => {
+        try {
+            CreateTable({ name: [1, 2, 3], age: [1, 2] });
+        } catch (err: unknown) {
+            const errMessage = err as Error;
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: invalid initial arguments when creating table; column "age" has improper length of 2, which does not match the length of the other columns provided`);
         }
     });
 });
