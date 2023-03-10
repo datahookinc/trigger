@@ -892,7 +892,9 @@ export function CreateQueue<T>(): Queue<T> {
 
 export type Single<T> = {
     use(): T;
-    set(v: T): boolean;
+    // Note: See this thread for more information about working around the call signature: https://github.com/microsoft/TypeScript/issues/37663 for why (newValue: T | ((currentValue: T) => T)): T won't work
+    set(newValue: T): T; // this is not fine
+    setFromCurrentValue(fn: (currentValue: T) => T): T;
     onSet(fn: (v: T) => void): void;
     onGet(fn: (v: T) => void): void;
     get(): T;
@@ -942,13 +944,22 @@ export function CreateSingle<T>(s: T): Single<T> {
             }
             return single;
         },
-        set(v: T): boolean {
+        set(newValue: T): T {
             if (triggers['onSet']) {
                 triggers['onSet'](single);
             }
+            notifySubscribers(newValue); // we pass the value to save extra function calls within notifySingleSubscribers
+            single = newValue;
+            return single;
+        },
+        setFromCurrentValue(fn: ((currentValue: T) => T)): T {
+            if (triggers['onSet']) {
+                triggers['onSet'](single);
+            }
+            const v = fn(single);
             notifySubscribers(v); // we pass the value to save extra function calls within notifySingleSubscribers
             single = v;
-            return true;
+            return single;
         },
         onSet(fn: (v: T) => void) {
             triggers['onSet'] = fn;

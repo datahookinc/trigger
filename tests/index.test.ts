@@ -64,13 +64,11 @@ s.queues.eventQueue.onGet(() => {
 });
 
 s.singles.numProductsOutOfStock.onSet(() => {
-    const v = singles.countChangesToNumProductsOutOfStock.get();
-    singles.countChangesToNumProductsOutOfStock.set(v + 1);
+    singles.countChangesToNumProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
 });
 
 s.singles.numProductsOutOfStock.onGet(() => {
-    const v = singles.countChangesToNumProductsOutOfStock.get();
-    singles.countChangesToNumProductsOutOfStock.set(v + 1);
+    singles.countChangesToNumProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
 });
 
 s.tables.customers.onAfterInsert((v) => {
@@ -403,10 +401,21 @@ describe('Testing TriggerQueue', () => {
     });
 });
 
+describe('Testing Singles', () => {
+    it('should increment from thte old value', () => {
+        const currentValue = singles.numProductsOutOfStock.get();
+        singles.numProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
+        const newValue = singles.numProductsOutOfStock.get();
+        expect(newValue).toEqual(currentValue + 1);
+        // reset count for trigger tests
+        singles.countChangesToNumProductsOutOfStock.set(0);
+    });
+});
+
 describe('Testing Single triggers', () => {
     it('should trigger an increment to countChangesToNumProductsOutOfStock when numProductsOutOfStock is set', () => {
-        const ok = singles.numProductsOutOfStock.set(100);
-        expect(ok).toEqual(true);
+        const v = singles.numProductsOutOfStock.set(100);
+        expect(v).toEqual(100);
         singles.numProductsOutOfStock.set(200);
         singles.numProductsOutOfStock.set(300);
         const count = singles.countChangesToNumProductsOutOfStock.get();
