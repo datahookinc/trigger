@@ -7,7 +7,11 @@ const errorStyling = `
 `;
 
 function logError(error: string) {
-    console.log(`%c⚡Error in @datahook/trigger: %c${error}`, `${errorStyling} border-left: 1px solid yellow; color: red; font-weight: bold`, `${errorStyling} color: white`); 
+    console.log(
+        `%c⚡Error in @datahook/trigger: %c${error}`,
+        `${errorStyling} border-left: 1px solid yellow; color: red; font-weight: bold`,
+        `${errorStyling} color: white`,
+    );
 }
 
 function newError(error: string): Error {
@@ -555,7 +559,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                         case 'object': {
                             for (const k in newValue) {
                                 if (!columnNames.includes(k)) {
-                                    logError(`Invalid column provided "${k}"`)
+                                    logError(`Invalid column provided "${k}"`);
                                     return undefined;
                                 }
                             }
@@ -628,7 +632,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                             case 'object': {
                                 for (const k in setValue) {
                                     if (!columnNames.includes(k)) {
-                                        logError(`Invalid column provided "${k}"`)
+                                        logError(`Invalid column provided "${k}"`);
                                         return [];
                                     }
                                 }
@@ -952,7 +956,7 @@ export function CreateSingle<T>(s: T): Single<T> {
             single = newValue;
             return single;
         },
-        setFromCurrentValue(fn: ((currentValue: T) => T)): T {
+        setFromCurrentValue(fn: (currentValue: T) => T): T {
             if (triggers['onSet']) {
                 triggers['onSet'](single);
             }
