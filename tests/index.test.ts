@@ -64,11 +64,11 @@ s.queues.eventQueue.onGet(() => {
 });
 
 s.singles.numProductsOutOfStock.onSet(() => {
-    singles.countChangesToNumProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
+    singles.countChangesToNumProductsOutOfStock.setFn(cv => cv + 1);
 });
 
 s.singles.numProductsOutOfStock.onGet(() => {
-    singles.countChangesToNumProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
+    singles.countChangesToNumProductsOutOfStock.setFn(cv => cv + 1);
 });
 
 s.tables.customers.onAfterInsert((v) => {
@@ -404,7 +404,7 @@ describe('Testing TriggerQueue', () => {
 describe('Testing Singles', () => {
     it('should increment from the old value', () => {
         const currentValue = singles.numProductsOutOfStock.get();
-        singles.numProductsOutOfStock.setFromCurrentValue(cv => cv + 1);
+        singles.numProductsOutOfStock.setFn(cv => cv + 1);
         const newValue = singles.numProductsOutOfStock.get();
         expect(newValue).toEqual(currentValue + 1);
         // reset count for trigger tests
