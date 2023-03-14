@@ -64,7 +64,7 @@ export declare function CreateQueue<T>(): Queue<T>;
 export type Single<T> = {
     use(): T;
     set(newValue: T): T;
-    setFromCurrentValue(fn: (currentValue: T) => T): T;
+    setFn(fn: (currentValue: T) => T): T;
     onSet(fn: (v: T) => void): void;
     onGet(fn: (v: T) => void): void;
     get(): T;
