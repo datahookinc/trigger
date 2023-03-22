@@ -6,7 +6,7 @@ type AllowedPrimitives = string | number | Date | boolean | null;
 type UserEntry = {
     [index: string]: AllowedPrimitives;
 };
-type TableEntry<T> = {
+export type TableEntry<T> = {
     [K in keyof T]: T[K];
 } & {
     _pk: number;
