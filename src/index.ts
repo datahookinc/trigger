@@ -47,7 +47,7 @@ type AllowedPrimitives = string | number | Date | boolean | null;
 type UserEntry = { [index: string]: AllowedPrimitives }; // & { _pk?: never}; TODO: ensure user does not try to pass-in _pk property during initialization
 
 // TableEntry is the UserEntry decorated with the _pk
-type TableEntry<T> = { [K in keyof T]: T[K] } & { _pk: number };
+export type TableEntry<T> = { [K in keyof T]: T[K] } & { _pk: number };
 
 export interface Store {
     tables?: {
