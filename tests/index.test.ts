@@ -362,6 +362,12 @@ describe('Testing Tables', () => {
         expect(n).toEqual(3);
         tables.orders.deleteRows({ customerID: 999 });
     });
+
+    it('should return the column names for the table', () => {
+        const expectedColumns = ['_pk', 'orderID', 'customerID', 'orderLocation', 'orderDate'];
+        const columns = tables.orders.getColumnNames();
+        expect(columns.every(v => expectedColumns.includes(v))).toBe(true);
+    });
 });
 
 describe('Testing TriggerQueue', () => {
@@ -519,6 +525,50 @@ describe('Testing error messages', () => {
         } catch (err: unknown) {
             const errMessage = err as Error;
             expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: invalid initial arguments when creating table; column "age" has improper length of 2, which does not match the length of the other columns provided`);
+        }
+    });
+    it('should return the proper error message when attempting to insert a row with properties not found in the table', () => {
+        try {
+
+            const table = CreateTable<{ name: string, age: number }>({ name: ["a", "b", "c"], age: [1, 2, 3] });
+            // eslint-disable-next-line  @typescript-eslint/no-explicit-any
+            table.insertRow({ name: "a", age: 10, gender: "m" } as any);
+        } catch (err: unknown) {
+            const errMessage = err as Error;
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: attempting to insert value into column "gender", which does not exist in table`);
+        }
+    });
+    it('should return the proper error message when attempting to insert a row without including all properties of the table', () => {
+        try {
+
+            const table = CreateTable<{ name: string, age: number }>({ name: ["a", "b", "c"], age: [1, 2, 3] });
+            // eslint-disable-next-line  @typescript-eslint/no-explicit-any
+            table.insertRow({ name: "a" } as any);
+        } catch (err: unknown) {
+            const errMessage = err as Error;
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: did not provide column "age" when attempting to insert row into table`);
+        }
+    });
+    it('should return the proper error message when attempting to insert rows with properties not found in the table', () => {
+        try {
+
+            const table = CreateTable<{ name: string, age: number }>({ name: ["a", "b", "c"], age: [1, 2, 3] });
+            // eslint-disable-next-line  @typescript-eslint/no-explicit-any
+            table.insertRows([{ name: "a", age: 10, gender: "m" } as any]);
+        } catch (err: unknown) {
+            const errMessage = err as Error;
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: attempting to insert value into column "gender", which does not exist in table`);
+        }
+    });
+    it('should return the proper error message when attempting to insert rows without including all properties of the table', () => {
+        try {
+
+            const table = CreateTable<{ name: string, age: number }>({ name: ["a", "b", "c"], age: [1, 2, 3] });
+            // eslint-disable-next-line  @typescript-eslint/no-explicit-any
+            table.insertRows([{ name: "a" } as any]);
+        } catch (err: unknown) {
+            const errMessage = err as Error;
+            expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: did not provide column "age" when attempting to insert row into table`);
         }
     });
 });

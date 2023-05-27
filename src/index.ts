@@ -14,8 +14,21 @@ function logError(error: string) {
     );
 }
 
+function logWarning(error: string) {
+    console.log(
+        `%c⚡Warning in @datahook/trigger: %c${error}`,
+        `${errorStyling} border-left: 1px solid yellow; color: yellow; font-weight: bold`,
+        `${errorStyling} color: white`,
+    );
+}
+
 function newError(error: string): Error {
     return new Error(`⚡Error in @datahook/trigger: ${error}`);
+}
+
+function logAndThrowError(error: string) {
+    logError(error);
+    throw newError(error);
 }
 
 /** Autoincrementing primary key required for tables */
@@ -85,6 +98,7 @@ export type Table<T extends UserEntry> = {
     getRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T>[]; // returns all rows that match
     getRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T> | undefined; // returns the first row that matches
     getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number;
+    getColumnNames(): (keyof TableEntry<T>)[]; // returns a list of the column names in the table
 };
 
 // _checkTable throws an error if the table is not instantiated correctly.
@@ -126,7 +140,8 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
     }
     const initialValues = { ...t, _pk: initialPK } as DefinedTable<TableEntry<T>>; // put PK last to override it if the user passes it in erroneously
     const table: DefinedTable<TableEntry<T>> = initialValues; // manually add the "_pk" so the user does not need to
-    const columnNames: (keyof T)[] = Object.keys(initialValues); // TODO: this is technically wrong because it does not include "_pk" as a column name in the type
+    const originalColumnNames = Object.keys(t); // the user provided column names
+    const columnNames: (keyof T)[] = Object.keys(initialValues); // the user provided column names + "_pk"
     const tableSubscribers: Subscribe<TableEntry<T>[]>[] = [];
     const rowSubscribers: Record<PK, Subscribe<TableEntry<T> | undefined>[]> = {};
     let triggerBeforeInsert: undefined | ((v: TableEntry<T>) => TableEntry<T> | void | boolean) = undefined;
@@ -347,6 +362,26 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         return updateValue;
     };
 
+    const _validateRow = (row: T): boolean => {
+        const keys = Object.keys(row);
+        keys.forEach(k => {
+            if (k == "_pk") {
+                logWarning(`attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`)
+            }
+
+            if (!originalColumnNames.includes(k)) {
+                logAndThrowError(`attempting to insert value into column "${k}", which does not exist in table`);
+            }
+        })
+
+        originalColumnNames.forEach(k => {
+            if (!keys.includes(k)) {
+                logAndThrowError(`did not provide column "${k}" when attempting to insert row into table`);
+            }
+        })
+        return true;
+    }
+
     return {
         use(where: ((v: TableEntry<T>) => boolean) | null, notify: TableNotify[] = []): TableEntry<T>[] {
             const [v, setV] = useState<TableEntry<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
@@ -400,6 +435,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             return v;
         },
         insertRow(newRow: T): TableEntry<T> | undefined {
+            _validateRow(newRow);
             const entry = _insertRow(newRow);
             if (entry) {
                 notifyTableSubscribers('rowInsert');
@@ -408,6 +444,9 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         },
         insertRows(newRows: T[], batchNotify = true): TableEntry<T>[] {
             const entries: TableEntry<T>[] = [];
+            // check all rows first to avoid side-effects
+            newRows.forEach(r => _validateRow(r));
+
             for (let i = 0, len = newRows.length; i < len; i++) {
                 const entry = _insertRow(newRows[i]);
                 if (entry) {
@@ -820,6 +859,9 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                 }
             }
             return table._pk.length;
+        },
+        getColumnNames(): (keyof T)[]  {
+            return columnNames;
         },
         onBeforeInsert(fn: (v: TableEntry<T>) => TableEntry<T> | boolean | void) {
             triggerBeforeInsert = fn;
