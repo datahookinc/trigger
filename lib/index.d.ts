@@ -43,6 +43,7 @@ export type Table<T extends UserEntry> = {
     getRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T>[];
     getRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T> | undefined;
     getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number;
+    getColumnNames(): (keyof TableEntry<T>)[];
 };
 export declare function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<TableEntry<T>>;
 export type QueueItem<T> = {
