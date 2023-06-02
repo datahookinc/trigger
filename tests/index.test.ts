@@ -129,7 +129,7 @@ describe('Testing Tables', () => {
         expect(rows.length).toBe(3);
     });
 
-    it('should return null when row does not exist', () => {
+    it('should return undefined when row does not exist', () => {
         const { result } = renderHook(() => tables.customers.useRow(-1));
         expect(result.current).toBeUndefined();
     });

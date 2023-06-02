@@ -56,15 +56,15 @@ type SingleSubscribe<T> = (v: T) => void;
 
 type AllowedPrimitives = string | number | Date | boolean | null;
 
-// UserEntry is what the user provides
-type UserEntry = { [index: string]: AllowedPrimitives }; // & { _pk?: never}; TODO: ensure user does not try to pass-in _pk property during initialization
+// UserRow is what the user provides (without the _pk property)
+type UserRow = { [index: string]: AllowedPrimitives }; // & { _pk?: never}; TODO: ensure user does not try to pass-in _pk property during initialization
 
-// TableEntry is the UserEntry decorated with the _pk
-export type TableEntry<T> = { [K in keyof T]: T[K] } & { _pk: number };
+// TableRow is the UserRow decorated with the _pk property
+export type TableRow<T> = { [K in keyof T]: T[K] } & { _pk: number };
 
 export interface Store {
     tables?: {
-        [index: string]: Table<ReturnType<<T extends UserEntry>() => T>>;
+        [index: string]: Table<ReturnType<<T extends UserRow>() => T>>;
     };
     queues?: {
         [index: string]: Queue<unknown>;
@@ -74,31 +74,32 @@ export interface Store {
     };
 }
 
-export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableEntry
+export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
-export type Table<T extends UserEntry> = {
-    use(where?: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
-    useRow(pk: PK, notify?: RowNotify[]): TableEntry<T> | undefined;
-    insertRow(r: T): TableEntry<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
-    insertRows(r: T[], batchNotify?: boolean): TableEntry<T>[];
-    onBeforeInsert(fn: (v: TableEntry<T>) => TableEntry<T> | void | boolean): void;
-    onAfterInsert(fn: (v: TableEntry<T>) => void): void;
-    deleteRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): boolean; // delete the first row that matches the PK, the property values provided, or the function
-    deleteRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean), batchNotify?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
-    onBeforeDelete(fn: (v: TableEntry<T>) => boolean | void): void;
-    onAfterDelete(fn: (v: TableEntry<T>) => void): void;
-    updateRow(pk: PK, newValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>)): TableEntry<T> | undefined;
+export type Table<T extends UserRow> = {
+    use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
+    insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
+    insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
+    onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | void | boolean): void;
+    onAfterInsert(fn: (row: TableRow<T>) => void): void;
+    deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean; // delete the first row that matches the PK, the property values provided, or the function
+    deleteRows(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
+    onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
+    onAfterDelete(fn: (row: TableRow<T>) => void): void;
+    updateRow(_pk: PK, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
     updateRows(
-        setValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>),
-        where?: Partial<T> | ((v: TableEntry<T>) => boolean),
+        setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
+        where?: Partial<T> | ((row: TableRow<T>) => boolean),
         batchNotify?: boolean,
-    ): TableEntry<T>[];
-    onBeforeUpdate(fn: (currentValue: TableEntry<T>, newValue: TableEntry<T>) => TableEntry<T> | void | boolean): void;
-    onAfterUpdate(fn: (previousValue: TableEntry<T>, newValue: TableEntry<T>) => void): void;
-    getRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T>[]; // returns all rows that match
-    getRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T> | undefined; // returns the first row that matches
-    getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number;
-    getColumnNames(): (keyof TableEntry<T>)[]; // returns a list of the column names in the table
+    ): TableRow<T>[];
+    onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
+    onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
+    getRow(where: PK | Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined; // returns the first row that matches
+    getRows(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[]; // returns all rows that match
+    getRowCount(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
+    getColumnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
+    print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
 };
 
 // _checkTable throws an error if the table is not instantiated correctly.
@@ -130,7 +131,7 @@ function _checkTable<T>(t: DefinedTable<T>): number {
 }
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<TableEntry<T>> {
+export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableRow<T>> {
     const nInitialLength = _checkTable(t);
     // setup the primary keys (accounting for any initial values)
     let autoPK: PK = 0;
@@ -138,23 +139,23 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
     for (let i = 0; i < nInitialLength; i++) {
         initialPK[i] = ++autoPK;
     }
-    const initialValues = { ...t, _pk: initialPK } as DefinedTable<TableEntry<T>>; // put PK last to override it if the user passes it in erroneously
-    const table: DefinedTable<TableEntry<T>> = initialValues; // manually add the "_pk" so the user does not need to
+    const initialValues = { ...t, _pk: initialPK } as DefinedTable<TableRow<T>>; // put PK last to override it if the user passes it in erroneously
+    const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_pk" so the user does not need to
     const originalColumnNames = Object.keys(t); // the user provided column names
     const columnNames: (keyof T)[] = Object.keys(initialValues); // the user provided column names + "_pk"
-    const tableSubscribers: Subscribe<TableEntry<T>[]>[] = [];
-    const rowSubscribers: Record<PK, Subscribe<TableEntry<T> | undefined>[]> = {};
-    let triggerBeforeInsert: undefined | ((v: TableEntry<T>) => TableEntry<T> | void | boolean) = undefined;
-    let triggerAfterInsert: undefined | ((v: TableEntry<T>) => void) = undefined;
-    let triggerBeforeDelete: undefined | ((v: TableEntry<T>) => boolean | void) = undefined;
-    let triggerAfterDelete: undefined | ((v: TableEntry<T>) => void) = undefined;
-    let triggerBeforeUpdate: undefined | ((cv: TableEntry<T>, nv: TableEntry<T>) => TableEntry<T> | void | boolean) = undefined;
-    let triggerAfterUpdate: undefined | ((pv: TableEntry<T>, nv: TableEntry<T>) => void) = undefined;
+    const tableSubscribers: Subscribe<TableRow<T>[]>[] = [];
+    const rowSubscribers: Record<PK, Subscribe<TableRow<T> | undefined>[]> = {};
+    let triggerBeforeInsert: undefined | ((v: TableRow<T>) => TableRow<T> | void | boolean) = undefined;
+    let triggerAfterInsert: undefined | ((v: TableRow<T>) => void) = undefined;
+    let triggerBeforeDelete: undefined | ((v: TableRow<T>) => boolean | void) = undefined;
+    let triggerAfterDelete: undefined | ((v: TableRow<T>) => void) = undefined;
+    let triggerBeforeUpdate: undefined | ((cv: TableRow<T>, nv: TableRow<T>) => TableRow<T> | void | boolean) = undefined;
+    let triggerAfterUpdate: undefined | ((pv: TableRow<T>, nv: TableRow<T>) => void) = undefined;
 
-    const _getAllRows = (): TableEntry<T>[] => {
-        const entries: TableEntry<T>[] = [];
+    const _getAllRows = (): TableRow<T>[] => {
+        const entries: TableRow<T>[] = [];
         for (let i = 0, numValues = table['_pk'].length; i < numValues; i++) {
-            const entry = {} as TableEntry<T>;
+            const entry = {} as TableRow<T>;
             for (let j = 0, numArrays = columnNames.length; j < numArrays; j++) {
                 entry[columnNames[j]] = table[columnNames[j]][i];
             }
@@ -173,9 +174,9 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
      * @param idx
      * @returns TableRow | undefined
      */
-    function _getRowByIndex(idx: number): TableEntry<T> | undefined {
+    function _getRowByIndex(idx: number): TableRow<T> | undefined {
         if (idx < _getRowCount()) {
-            const entry = {} as TableEntry<T>;
+            const entry = {} as TableRow<T>;
             for (const k of columnNames) {
                 entry[k] = table[k][idx];
             }
@@ -190,7 +191,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
      * @param pk
      * @returns TableRow | undefined
      */
-    function _getRowByPK(pk: PK): TableEntry<T> | undefined {
+    function _getRowByPK(pk: PK): TableRow<T> | undefined {
         if (pk < 0) {
             return undefined;
         }
@@ -218,14 +219,14 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         return false;
     };
 
-    const registerTable = (fn: (v: TableEntry<T>[]) => void, notify: TableNotify[]) => {
+    const registerTable = (fn: (v: TableRow<T>[]) => void, notify: TableNotify[]) => {
         tableSubscribers.push({
             notify,
             fn,
         });
     };
 
-    const unregisterTable = (fn: (v: TableEntry<T>[]) => void) => {
+    const unregisterTable = (fn: (v: TableRow<T>[]) => void) => {
         tableSubscribers.filter((d) => d.fn !== fn);
     };
 
@@ -251,7 +252,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         }
     };
 
-    const registerRow = (pk: PK, fn: (v: TableEntry<T>) => void, notify: RowNotify[]) => {
+    const registerRow = (pk: PK, fn: (v: TableRow<T>) => void, notify: RowNotify[]) => {
         if (!rowSubscribers[pk]) {
             rowSubscribers[pk] = [];
         }
@@ -262,7 +263,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         });
     };
 
-    const unregisterRow = (pk: PK, fn: (v: TableEntry<T>) => void) => {
+    const unregisterRow = (pk: PK, fn: (v: TableRow<T>) => void) => {
         if (rowSubscribers[pk]) {
             rowSubscribers[pk] = rowSubscribers[pk].filter((d) => d.fn !== fn);
             if (rowSubscribers[pk].length === 0) {
@@ -271,12 +272,12 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         }
     };
 
-    const _insertRow = (newRow: T): TableEntry<T> | undefined => {
+    const _insertRow = (newRow: T): TableRow<T> | undefined => {
         const newPK = autoPK + 1;
         let entry = {
             _pk: newPK,
             ...newRow,
-        } as TableEntry<T>;
+        } as TableRow<T>;
 
         if (triggerBeforeInsert) {
             const v = triggerBeforeInsert(entry);
@@ -307,7 +308,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         return entry;
     };
 
-    const _deleteRow = (idx: number, entry: TableEntry<T>): boolean => {
+    const _deleteRow = (idx: number, entry: TableRow<T>): boolean => {
         if (triggerBeforeDelete) {
             const v = triggerBeforeDelete(entry);
             // user has elected to abort the delete
@@ -327,7 +328,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
         return true;
     };
 
-    const _updateRow = (idx: number, cv: TableEntry<T>, nv: Partial<T>): TableEntry<T> | undefined => {
+    const _updateRow = (idx: number, cv: TableRow<T>, nv: Partial<T>): TableRow<T> | undefined => {
         // merge the two values
         const merged = {
             ...cv,
@@ -364,35 +365,94 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
 
     const _validateRow = (row: T): boolean => {
         const keys = Object.keys(row);
-        keys.forEach(k => {
-            if (k == "_pk") {
-                logWarning(`attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`)
+        keys.forEach((k) => {
+            if (k == '_pk') {
+                logWarning(
+                    `attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`,
+                );
             }
 
             if (!originalColumnNames.includes(k)) {
                 logAndThrowError(`attempting to insert value into column "${k}", which does not exist in table`);
             }
-        })
+        });
 
-        originalColumnNames.forEach(k => {
+        originalColumnNames.forEach((k) => {
             if (!keys.includes(k)) {
                 logAndThrowError(`did not provide column "${k}" when attempting to insert row into table`);
             }
-        })
+        });
         return true;
+    };
+
+    const _getRows = (where?: Partial<T> | ((v: TableRow<T>) => boolean) | null): TableRow<T>[] => {
+        const numRows = _getRowCount();
+        if (numRows > 0) {
+            switch (typeof where) {
+                case 'undefined': {
+                    return _getAllRows();
+                }
+                case 'function': {
+                    const entries: TableRow<T>[] = [];
+                    // loop through the rows until we find a matching index, returns the first match if any
+                    for (let i = 0, len = numRows; i < len; i++) {
+                        const entry = _getRowByIndex(i);
+                        if (entry && where(entry)) {
+                            entries.push(entry);
+                        }
+                    }
+                    return entries;
+                }
+                case 'object': {
+                    if (where === null) {
+                        return _getAllRows();
+                    }
+                    const keys = Object.keys(where);
+                    if (keys.length === 0) {
+                        return [];
+                    } else {
+                        // make sure the requested columns exist in the table; if they don't all exist, return undefined
+                        for (const k of keys) {
+                            if (!columnNames.includes(k)) {
+                                return [];
+                            }
+                        }
+                        const entries: TableRow<T>[] = [];
+                        // loop through the rows looking for indexes that match
+                        for (let i = 0, len = numRows; i < len; i++) {
+                            let allMatch = true;
+                            for (const k of keys) {
+                                if (where[k] !== table[k][i]) {
+                                    allMatch = false;
+                                    break;
+                                }
+                            }
+                            if (allMatch) {
+                                const entry = _getRowByIndex(i);
+                                if (entry) {
+                                    entries.push(entry);
+                                }
+                            }
+                        }
+                        return entries;
+                    }
+                }
+            }
+        }
+        return [];
     }
 
     return {
-        use(where: ((v: TableEntry<T>) => boolean) | null, notify: TableNotify[] = []): TableEntry<T>[] {
-            const [v, setV] = useState<TableEntry<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        use(where: ((row: TableRow<T>) => boolean) | null, notify: TableNotify[] = []): TableRow<T>[] {
+            const [v, setV] = useState<TableRow<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
-            const hasChanged = useRef((newValues: TableEntry<T>[]) => tableHasChanged(v, newValues));
-            const notifyList = useRef(notify);
+            const hasChanged = useRef((newValues: TableRow<T>[]) => tableHasChanged(v, newValues));
+            const notifyList = useRef(Array.from(new Set(notify)));
             const whereClause = useRef(where);
-            hasChanged.current = (newValues: TableEntry<T>[]) => tableHasChanged(v, newValues);
+            hasChanged.current = (newValues: TableRow<T>[]) => tableHasChanged(v, newValues);
 
             useEffect(() => {
-                const subscribe = (nv: TableEntry<T>[]) => {
+                const subscribe = (nv: TableRow<T>[]) => {
                     if (whereClause.current) {
                         // compare to see if changes effect rows this component is hooking into
                         const filtered = nv.filter(whereClause.current);
@@ -417,12 +477,12 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }, [t]);
             return v;
         },
-        useRow(pk: PK, notify: RowNotify[] = []): TableEntry<T> | undefined {
-            const [v, setV] = useState<TableEntry<T> | undefined>(() => _getRowByPK(pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        useRow(pk: PK, notify: RowNotify[] = []): TableRow<T> | undefined {
+            const [v, setV] = useState<TableRow<T> | undefined>(() => _getRowByPK(pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid firing useEffect when the notify object reference changes
-            const notifyList = useRef(notify);
+            const notifyList = useRef(Array.from(new Set(notify)));
             useEffect(() => {
-                const subscribe = (nv: TableEntry<T> | undefined) => {
+                const subscribe = (nv: TableRow<T> | undefined) => {
                     setV(nv);
                 };
                 registerRow(pk, subscribe, notifyList.current);
@@ -434,7 +494,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }, [t, pk]);
             return v;
         },
-        insertRow(newRow: T): TableEntry<T> | undefined {
+        insertRow(newRow: T): TableRow<T> | undefined {
             _validateRow(newRow);
             const entry = _insertRow(newRow);
             if (entry) {
@@ -442,10 +502,10 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }
             return entry;
         },
-        insertRows(newRows: T[], batchNotify = true): TableEntry<T>[] {
-            const entries: TableEntry<T>[] = [];
+        insertRows(newRows: T[], batchNotify = true): TableRow<T>[] {
+            const entries: TableRow<T>[] = [];
             // check all rows first to avoid side-effects
-            newRows.forEach(r => _validateRow(r));
+            newRows.forEach((r) => _validateRow(r));
 
             for (let i = 0, len = newRows.length; i < len; i++) {
                 const entry = _insertRow(newRows[i]);
@@ -461,7 +521,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }
             return entries;
         },
-        deleteRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): boolean {
+        deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean {
             let i = table._pk.length;
             while (i--) {
                 let remove = false;
@@ -516,7 +576,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }
             return false;
         },
-        deleteRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean), batchNotify = true): number {
+        deleteRows(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify = true): number {
             let i = table._pk.length;
             let numRemoved = 0;
             while (i--) {
@@ -541,6 +601,11 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                         break;
                     }
                     case 'object': {
+                        // passing null is the same as passing undefined
+                        if (where === null) {
+                            remove = true;
+                            break;
+                        }
                         const keys = Object.keys(where);
                         // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
@@ -581,7 +646,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }
             return numRemoved;
         },
-        updateRow(pk: PK, newValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>)): TableEntry<T> | undefined {
+        updateRow(pk: PK, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined {
             let idx = -1;
             // find the idx where the pk exists in this table
             for (let i = 0, len = table._pk.length; i < len; i++) {
@@ -593,20 +658,20 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             if (idx >= 0) {
                 const currentEntry = _getRowByIndex(idx);
                 if (currentEntry) {
-                    let updated: TableEntry<T> | undefined = undefined;
-                    switch (typeof newValue) {
+                    let updated: TableRow<T> | undefined = undefined;
+                    switch (typeof setValue) {
                         case 'object': {
-                            for (const k in newValue) {
+                            for (const k in setValue) {
                                 if (!columnNames.includes(k)) {
                                     logError(`Invalid column provided "${k}"`);
                                     return undefined;
                                 }
                             }
-                            updated = _updateRow(idx, currentEntry, newValue);
+                            updated = _updateRow(idx, currentEntry, setValue);
                             break;
                         }
                         case 'function': {
-                            const nv = newValue(currentEntry);
+                            const nv = setValue(currentEntry);
                             updated = _updateRow(idx, currentEntry, nv);
                             break;
                         }
@@ -622,12 +687,12 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             return undefined;
         },
         updateRows(
-            setValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>),
-            where?: Partial<T> | ((v: TableEntry<T>) => boolean),
+            setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
+            where?: Partial<T> | ((row: TableRow<T>) => boolean),
             batch = true,
-        ): TableEntry<T>[] {
+        ): TableRow<T>[] {
             let idx = table._pk.length;
-            const entries: TableEntry<T>[] = [];
+            const entries: TableRow<T>[] = [];
             while (idx--) {
                 let update = false;
                 switch (typeof where) {
@@ -666,7 +731,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                 if (update) {
                     const currentEntry = _getRowByIndex(idx);
                     if (currentEntry) {
-                        let updated: TableEntry<T> | undefined = undefined;
+                        let updated: TableRow<T> | undefined = undefined;
                         switch (typeof setValue) {
                             case 'object': {
                                 for (const k in setValue) {
@@ -700,60 +765,10 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }
             return entries;
         },
-        getRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T>[] {
-            const numRows = _getRowCount();
-            if (numRows > 0) {
-                switch (typeof where) {
-                    case 'undefined': {
-                        return _getAllRows();
-                    }
-                    case 'function': {
-                        const entries: TableEntry<T>[] = [];
-                        // loop through the rows until we find a matching index, returns the first match if any
-                        for (let i = 0, len = numRows; i < len; i++) {
-                            const entry = _getRowByIndex(i);
-                            if (entry && where(entry)) {
-                                entries.push(entry);
-                            }
-                        }
-                        return entries;
-                    }
-                    case 'object': {
-                        const keys = Object.keys(where);
-                        if (keys.length === 0) {
-                            return [];
-                        } else {
-                            // make sure the requested columns exist in the table; if they don't all exist, return undefined
-                            for (const k of keys) {
-                                if (!columnNames.includes(k)) {
-                                    return [];
-                                }
-                            }
-                            const entries: TableEntry<T>[] = [];
-                            // loop through the rows looking for indexes that match
-                            for (let i = 0, len = numRows; i < len; i++) {
-                                let allMatch = true;
-                                for (const k of keys) {
-                                    if (where[k] !== table[k][i]) {
-                                        allMatch = false;
-                                        break;
-                                    }
-                                }
-                                if (allMatch) {
-                                    const entry = _getRowByIndex(i);
-                                    if (entry) {
-                                        entries.push(entry);
-                                    }
-                                }
-                            }
-                            return entries;
-                        }
-                    }
-                }
-            }
-            return [];
+        getRows(where?: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T>[] {
+            return _getRows(where);
         },
-        getRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T> | undefined {
+        getRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T> | undefined {
             const numRows = _getRowCount();
             if (numRows > 0) {
                 let idx = -1;
@@ -763,7 +778,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                     }
                     case 'function': {
                         // loop through the rows until we find a matching index, returns the first match if any
-                        const entry = {} as TableEntry<T>;
+                        const entry = {} as TableRow<T>;
                         for (let i = 0, len = numRows; i < len; i++) {
                             for (const k of columnNames) {
                                 entry[k] = table[k][i];
@@ -816,7 +831,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                 }
             }
         },
-        getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number {
+        getRowCount(where?: Partial<T> | ((row: TableRow<T>) => boolean)): number {
             switch (typeof where) {
                 case 'object': {
                     // make sure the requested columns exist in the table; if they don't all exist, return undefined
@@ -847,7 +862,7 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
                     const numRows = _getRowCount();
                     let n = 0;
                     for (let i = 0, len = numRows; i < len; i++) {
-                        const entry = {} as TableEntry<T>;
+                        const entry = {} as TableRow<T>;
                         for (const k of columnNames) {
                             entry[k] = table[k][i];
                         }
@@ -860,27 +875,42 @@ export function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<Tabl
             }
             return table._pk.length;
         },
-        getColumnNames(): (keyof T)[]  {
-            return columnNames;
+        getColumnNames(): (keyof T)[] {
+            return columnNames.sort();
         },
-        onBeforeInsert(fn: (v: TableEntry<T>) => TableEntry<T> | boolean | void) {
+        onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | boolean | void) {
             triggerBeforeInsert = fn;
         },
-        onAfterInsert(fn: (v: TableEntry<T>) => void) {
+        onAfterInsert(fn: (row: TableRow<T>) => void) {
             triggerAfterInsert = fn;
         },
-        onBeforeDelete(fn: (v: TableEntry<T>) => boolean | void) {
+        onBeforeDelete(fn: (row: TableRow<T>) => boolean | void) {
             triggerBeforeDelete = fn;
         },
-        onAfterDelete(fn: (v: TableEntry<T>) => void) {
+        onAfterDelete(fn: (row: TableRow<T>) => void) {
             triggerAfterDelete = fn;
         },
-        onBeforeUpdate(fn: (currentValue: TableEntry<T>, newValue: TableEntry<T>) => boolean | void) {
+        onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => boolean | void) {
             triggerBeforeUpdate = fn;
         },
-        onAfterUpdate(fn: (previousValue: TableEntry<T>, newValue: TableEntry<T>) => void) {
+        onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void) {
             triggerAfterUpdate = fn;
         },
+        print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n = 50) {
+            let rows = _getRows(where);
+            rows = n == -1 ? rows : rows.slice(0, n);
+
+            if (rows.length === 0) {
+                const cols = this.getColumnNames();
+                console.log("No rows found");
+                console.table(Object.fromEntries(cols.map(d => [d, []]))); // add an empty array to each column name
+                return;
+            }
+        
+            // transform the rows so the index is the _pk instead of an arbitrary number
+            const transformed = rows.reduce((acc, {_pk, ...x}) => { acc[_pk] = x; return acc}, {} as {[index: number]: Omit<TableRow<T>, "_pk">});
+            console.table(transformed)
+        }
     };
 }
 
@@ -891,9 +921,9 @@ export type QueueItem<T> = {
 
 export type Queue<T> = {
     insert(item: T, cb?: (ok: boolean) => void): boolean;
-    onInsert(fn: (v: T) => void): void;
+    onInsert(fn: (newItem: T) => void): void;
     get(): QueueItem<T> | undefined;
-    onGet(fn: (v: T) => void): void;
+    onGet(fn: (item: T) => void): void;
     size(): number;
 };
 
@@ -927,10 +957,10 @@ export function CreateQueue<T>(): Queue<T> {
         size(): number {
             return q.length;
         },
-        onInsert(fn: (v: T) => void) {
+        onInsert(fn: (newItem: T) => void) {
             triggers['onInsert'] = fn;
         },
-        onGet(fn: (v: T) => void) {
+        onGet(fn: (item: T) => void) {
             triggers['onGet'] = fn;
         },
     };
@@ -939,10 +969,10 @@ export function CreateQueue<T>(): Queue<T> {
 export type Single<T> = {
     use(): T;
     // Note: See this thread for more information about working around the call signature: https://github.com/microsoft/TypeScript/issues/37663 for why (newValue: T | ((currentValue: T) => T)): T won't work
-    set(newValue: T): T; // this is not fine
+    set(newValue: T): T;
     setFn(fn: (currentValue: T) => T): T;
-    onSet(fn: (v: T) => void): void;
-    onGet(fn: (v: T) => void): void;
+    onSet(fn: (newValue: T) => void): void;
+    onGet(fn: (value: T) => void): void;
     get(): T;
 };
 
@@ -1007,10 +1037,10 @@ export function CreateSingle<T>(s: T): Single<T> {
             single = v;
             return single;
         },
-        onSet(fn: (v: T) => void) {
+        onSet(fn: (newValue: T) => void) {
             triggers['onSet'] = fn;
         },
-        onGet(fn: (v: T) => void) {
+        onGet(fn: (value: T) => void) {
             triggers['onGet'] = fn;
         },
     };
