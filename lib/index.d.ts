@@ -3,17 +3,17 @@ type PK = number;
 type TableNotify = 'rowInsert' | 'rowDelete' | 'rowUpdate';
 type RowNotify = 'rowUpdate' | 'rowDelete';
 type AllowedPrimitives = string | number | Date | boolean | null;
-type UserEntry = {
+type UserRow = {
     [index: string]: AllowedPrimitives;
 };
-export type TableEntry<T> = {
+export type TableRow<T> = {
     [K in keyof T]: T[K];
 } & {
     _pk: number;
 };
 export interface Store {
     tables?: {
-        [index: string]: Table<ReturnType<(<T extends UserEntry>() => T)>>;
+        [index: string]: Table<ReturnType<(<T extends UserRow>() => T)>>;
     };
     queues?: {
         [index: string]: Queue<unknown>;
@@ -25,36 +25,37 @@ export interface Store {
 export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
-export type Table<T extends UserEntry> = {
-    use(where?: ((v: TableEntry<T>) => boolean) | null, notify?: TableNotify[]): TableEntry<T>[];
-    useRow(pk: PK, notify?: RowNotify[]): TableEntry<T> | undefined;
-    insertRow(r: T): TableEntry<T> | undefined;
-    insertRows(r: T[], batchNotify?: boolean): TableEntry<T>[];
-    onBeforeInsert(fn: (v: TableEntry<T>) => TableEntry<T> | void | boolean): void;
-    onAfterInsert(fn: (v: TableEntry<T>) => void): void;
-    deleteRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): boolean;
-    deleteRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean), batchNotify?: boolean): number;
-    onBeforeDelete(fn: (v: TableEntry<T>) => boolean | void): void;
-    onAfterDelete(fn: (v: TableEntry<T>) => void): void;
-    updateRow(pk: PK, newValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>)): TableEntry<T> | undefined;
-    updateRows(setValue: Partial<T> | ((v: TableEntry<T>) => Partial<T>), where?: Partial<T> | ((v: TableEntry<T>) => boolean), batchNotify?: boolean): TableEntry<T>[];
-    onBeforeUpdate(fn: (currentValue: TableEntry<T>, newValue: TableEntry<T>) => TableEntry<T> | void | boolean): void;
-    onAfterUpdate(fn: (previousValue: TableEntry<T>, newValue: TableEntry<T>) => void): void;
-    getRows(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T>[];
-    getRow(where: PK | Partial<T> | ((v: TableEntry<T>) => boolean)): TableEntry<T> | undefined;
-    getRowCount(where?: Partial<T> | ((v: TableEntry<T>) => boolean)): number;
-    getColumnNames(): (keyof TableEntry<T>)[];
+export type Table<T extends UserRow> = {
+    use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
+    insertRow(row: T): TableRow<T> | undefined;
+    insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
+    onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | void | boolean): void;
+    onAfterInsert(fn: (row: TableRow<T>) => void): void;
+    deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean;
+    deleteRows(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number;
+    onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
+    onAfterDelete(fn: (row: TableRow<T>) => void): void;
+    updateRow(_pk: PK, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
+    updateRows(setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), where?: Partial<T> | ((row: TableRow<T>) => boolean), batchNotify?: boolean): TableRow<T>[];
+    onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
+    onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
+    getRow(where: PK | Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined;
+    getRows(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[];
+    getRowCount(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
+    getColumnNames(): (keyof TableRow<T>)[];
+    print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void;
 };
-export declare function CreateTable<T extends UserEntry>(t: DefinedTable<T>): Table<TableEntry<T>>;
+export declare function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableRow<T>>;
 export type QueueItem<T> = {
     item: T;
     cb?: (ok: boolean) => void;
 };
 export type Queue<T> = {
     insert(item: T, cb?: (ok: boolean) => void): boolean;
-    onInsert(fn: (v: T) => void): void;
+    onInsert(fn: (newItem: T) => void): void;
     get(): QueueItem<T> | undefined;
-    onGet(fn: (v: T) => void): void;
+    onGet(fn: (item: T) => void): void;
     size(): number;
 };
 /** NewTriggerQueue is a wrapper for creating a new trigger queue that will be managed by the store
@@ -66,8 +67,8 @@ export type Single<T> = {
     use(): T;
     set(newValue: T): T;
     setFn(fn: (currentValue: T) => T): T;
-    onSet(fn: (v: T) => void): void;
-    onGet(fn: (v: T) => void): void;
+    onSet(fn: (newValue: T) => void): void;
+    onGet(fn: (value: T) => void): void;
     get(): T;
 };
 export declare function CreateSingle<T>(s: T): Single<T>;
