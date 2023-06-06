@@ -440,7 +440,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
             }
         }
         return [];
-    }
+    };
 
     return {
         use(where: ((row: TableRow<T>) => boolean) | null, notify: TableNotify[] = []): TableRow<T>[] {
@@ -902,15 +902,18 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
 
             if (rows.length === 0) {
                 const cols = this.getColumnNames();
-                console.log("No rows found");
-                console.table(Object.fromEntries(cols.map(d => [d, []]))); // add an empty array to each column name
+                console.log('No rows found');
+                console.table(Object.fromEntries(cols.map((d) => [d, []]))); // add an empty array to each column name
                 return;
             }
-        
+
             // transform the rows so the index is the _pk instead of an arbitrary number
-            const transformed = rows.reduce((acc, {_pk, ...x}) => { acc[_pk] = x; return acc}, {} as {[index: number]: Omit<TableRow<T>, "_pk">});
-            console.table(transformed)
-        }
+            const transformed = rows.reduce((acc, { _pk, ...x }) => {
+                acc[_pk] = x;
+                return acc;
+            }, {} as { [index: number]: Omit<TableRow<T>, '_pk'> });
+            console.table(transformed);
+        },
     };
 }
 
