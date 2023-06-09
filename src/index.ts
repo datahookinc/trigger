@@ -925,7 +925,8 @@ export type QueueItem<T> = {
 export type Queue<T> = {
     insert(item: T, cb?: (ok: boolean) => void): boolean;
     onInsert(fn: (newItem: T) => void): void;
-    get(): QueueItem<T> | undefined;
+    /** returns the next item in the queue or undefined if the queue is empty */
+    get(): T | undefined;
     onGet(fn: (item: T) => void): void;
     size(): number;
 };
@@ -947,7 +948,7 @@ export function CreateQueue<T>(): Queue<T> {
             }
             return true;
         },
-        get(): QueueItem<T> | undefined {
+        get(): T | undefined {
             const item = q.shift();
             if (item) {
                 // pass entry to trigger
@@ -955,7 +956,7 @@ export function CreateQueue<T>(): Queue<T> {
                     triggers['onGet'](item.item);
                 }
             }
-            return item;
+            return item?.item;
         },
         size(): number {
             return q.length;
