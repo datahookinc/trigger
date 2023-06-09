@@ -54,7 +54,8 @@ export type QueueItem<T> = {
 export type Queue<T> = {
     insert(item: T, cb?: (ok: boolean) => void): boolean;
     onInsert(fn: (newItem: T) => void): void;
-    get(): QueueItem<T> | undefined;
+    /** returns the next item in the queue or undefined if the queue is empty */
+    get(): T | undefined;
     onGet(fn: (item: T) => void): void;
     size(): number;
 };
