@@ -1,5 +1,6 @@
 import { renderHook, act } from '@testing-library/react';
 import { extract, CreateQueue, CreateSingle, CreateTable, type Store, type Table, type Queue, type Single } from '../src';
+import 'isomorphic-fetch'; // required because jest does not recognize node's global fetch API (even though it should when using node v18)
 
 type Customer = {
     customerID: number;
@@ -20,11 +21,17 @@ type Company = {
     location: string;
 }
 
+type Cat = {
+    name: string;
+    age: number;
+}
+
 interface MyStore extends Store {
     tables: {
         customers: Table<Customer>;
         orders: Table<Order>;
         company: Table<Company>;
+        cat: Table<Cat>;
     };
     queues: {
         eventQueue: Queue<string>;
@@ -42,6 +49,7 @@ const s: MyStore = {
         customers: CreateTable<Customer>({ customerID: [], firstName: [], lastName: [] }),
         orders: CreateTable<Order>({ orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
         company: CreateTable<Company>({ companyID: [1, 2, 3], name: ['abc', 'def', 'ghi'], location: ['CA', 'US', 'EU'] }),
+        cat: CreateTable<Cat>({ name: [], age: [] }),
     },
     queues: {
         eventQueue: CreateQueue<string>(),
@@ -562,7 +570,6 @@ describe('Testing error messages', () => {
     });
     it('should return the proper error message when attempting to insert rows without including all properties of the table', () => {
         try {
-
             const table = CreateTable<{ name: string, age: number }>({ name: ["a", "b", "c"], age: [1, 2, 3] });
             // eslint-disable-next-line  @typescript-eslint/no-explicit-any
             table.insertRows([{ name: "a" } as any]);
@@ -570,5 +577,25 @@ describe('Testing error messages', () => {
             const errMessage = err as Error;
             expect(errMessage.message).toBe(`⚡Error in @datahook/trigger: did not provide column "age" when attempting to insert row into table`);
         }
+    });
+});
+
+describe('Testing useFetch', () => {
+    it('should fetch the data and populate the table', async () => {
+
+        // LEFT-OFF: the problem is I need this to be wrapped in an act() for it to render the hook again, but the signature gets all messed-up and I don't think act() should be
+        // nested within the renderHook function...
+        const { result } = renderHook(() => tables.cat.useFetch(() => {
+            return fetch('localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, []));
+        await new Promise(process.nextTick);
+        // const n = tables.cat.getRowCount();
+        console.log("Still wrong here");
+        console.log(result.current);
+        expect(result.current.error).toBeNull();
+        // expect(result.current.status).toBe('success');
+        // expect(n).toEqual(2);
+        // expect(result.current.data).not.toBeNull();
+        // expect(result.current.data?.length).toBe(2);
     });
 });

@@ -16,7 +16,7 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "scripts": {
-    "test": "jest --rootDir=./tests --watch index.test.ts",
+    "test": "jest --transformIgnorePatterns 'node_modules/(?!node-fetch)/' --rootDir=./tests --watch index.test.ts",
     "test-build": "jest --silent --rootDir=./tests",
     "build": "tsc",
     "prepare": "npm run build",
@@ -26,7 +26,8 @@
     "postversion": "git push && git push --tags",
     "format": "prettier --config .prettierrc --write \"src/**/*.ts\"",
     "lint": "eslint . --ext .ts",
-    "format-and-lint": "npm run lint && npm run format"
+    "format-and-lint": "npm run lint && npm run format",
+    "start-server": "json-server ./tests/data.json"
   },
   "repository": {
     "type": "git",
@@ -44,8 +45,11 @@
     "@typescript-eslint/eslint-plugin": "5.59.9",
     "@typescript-eslint/parser": "5.59.9",
     "eslint": "8.42.0",
+    "isomorphic-fetch": "3.0.0",
     "jest": "29.5.0",
     "jest-environment-jsdom": "29.5.0",
+    "json-server": "0.17.3",
+    "node-fetch": "3.3.1",
     "prettier": "2.8.8",
     "react": "18.2.0",
     "ts-jest": "29.1.0",

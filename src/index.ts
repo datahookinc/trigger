@@ -59,6 +59,8 @@ type AllowedPrimitives = string | number | Date | boolean | null;
 // UserRow is what the user provides (without the _pk property)
 type UserRow = { [index: string]: AllowedPrimitives }; // & { _pk?: never}; TODO: ensure user does not try to pass-in _pk property during initialization
 
+export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
+
 // TableRow is the UserRow decorated with the _pk property
 export type TableRow<T> = { [K in keyof T]: T[K] } & { _pk: number };
 
@@ -78,6 +80,7 @@ export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed du
 
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useFetch(queryFn: () => Promise<T[]>, refetchOn: unknown[]): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null };
     useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
     insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
@@ -308,6 +311,26 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
         return entry;
     };
 
+    const _insertRows = (newRows: T[], batchNotify = true): TableRow<T>[] => {
+        const entries: TableRow<T>[] = [];
+        // check all rows first to avoid side-effects
+        newRows.forEach((r) => _validateRow(r));
+    
+        for (let i = 0, len = newRows.length; i < len; i++) {
+            const entry = _insertRow(newRows[i]);
+            if (entry) {
+                if (!batchNotify) {
+                    notifyTableSubscribers('rowInsert');
+                }
+                entries.push(entry);
+            }
+        }
+        if (batchNotify) {
+            notifyTableSubscribers('rowInsert');
+        }
+        return entries;
+    }
+
     const _deleteRow = (idx: number, entry: TableRow<T>): boolean => {
         if (triggerBeforeDelete) {
             const v = triggerBeforeDelete(entry);
@@ -442,6 +465,12 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
         return [];
     };
 
+    const _clearTable = () => {
+        for (const k of columnNames) {
+            table[k] = [];
+        }
+    };
+
     return {
         use(where: ((row: TableRow<T>) => boolean) | null, notify: TableNotify[] = []): TableRow<T>[] {
             const [v, setV] = useState<TableRow<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
@@ -477,6 +506,39 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
             }, [t]);
             return v;
         },
+        // this is a bit different from 
+        useFetch(queryFn: () => Promise<T[]>, refetchOn: unknown[]): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null } {
+            const [status, setStatus] = useState<FetchStatus>('idle');
+            const [data, setData] = useState<TableRow<T>[] | null>(null);
+            const [error, setError] = useState<string | null>(null);
+        
+            useEffect(() => {
+                let doUpdate = true;
+                setStatus('loading');
+                queryFn()
+                    // TODO: confirm returned data is valid
+                    .then(d => {
+                        if (doUpdate) {
+                            _clearTable(); // default behavior is to clear the table, but leave the _pk at it's current number to avoid unintended side-effects
+                            _insertRows(d, true);
+                            setStatus('success');
+                            setData(_getAllRows());
+                            setError(null);
+                        }
+                    })
+                    .catch(err => {
+                        if (doUpdate) {
+                            setStatus('error');
+                            setData(null);
+                            setError(err);
+                        }
+                    })
+                return () => {
+                    doUpdate = false;
+                }; // here to avoid firing on multiple renders
+            }, [refetchOn]);
+            return { data, status, error };
+        },
         useRow(pk: PK, notify: RowNotify[] = []): TableRow<T> | undefined {
             const [v, setV] = useState<TableRow<T> | undefined>(() => _getRowByPK(pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid firing useEffect when the notify object reference changes
@@ -503,23 +565,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
             return entry;
         },
         insertRows(newRows: T[], batchNotify = true): TableRow<T>[] {
-            const entries: TableRow<T>[] = [];
-            // check all rows first to avoid side-effects
-            newRows.forEach((r) => _validateRow(r));
-
-            for (let i = 0, len = newRows.length; i < len; i++) {
-                const entry = _insertRow(newRows[i]);
-                if (entry) {
-                    if (!batchNotify) {
-                        notifyTableSubscribers('rowInsert');
-                    }
-                    entries.push(entry);
-                }
-            }
-            if (batchNotify) {
-                notifyTableSubscribers('rowInsert');
-            }
-            return entries;
+            return _insertRows(newRows, batchNotify);
         },
         deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean {
             let i = table._pk.length;
