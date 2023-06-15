@@ -1,6 +1,6 @@
 {
   "name": "@datahook/trigger",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "⚡Data-oriented state management for React",
   "keywords": [
     "react",

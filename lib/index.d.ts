@@ -6,6 +6,7 @@ type AllowedPrimitives = string | number | Date | boolean | null;
 type UserRow = {
     [index: string]: AllowedPrimitives;
 };
+export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 export type TableRow<T> = {
     [K in keyof T]: T[K];
 } & {
@@ -22,11 +23,21 @@ export interface Store {
         [index: string]: Single<unknown>;
     };
 }
+type TableRefreshOptions = {
+    refreshOn?: unknown[];
+    refreshMode?: 'replace' | 'append';
+    resetIndex?: boolean;
+};
 export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions): {
+        data: TableRow<T>[] | null;
+        status: FetchStatus;
+        error: string | null;
+    };
     useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
     insertRow(row: T): TableRow<T> | undefined;
     insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
