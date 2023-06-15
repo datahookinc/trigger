@@ -76,11 +76,17 @@ export interface Store {
     };
 }
 
+type TableRefreshOptions = {
+    refreshOn?: unknown[];
+    refreshMode?: 'replace' | 'append';
+    resetIndex?:  boolean;   
+}
+
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
-    useFetch(queryFn: () => Promise<T[]>, refetchOn: unknown[]): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null };
+    useLoadData(queryFn: () => (Promise<T[]> | undefined), options?: TableRefreshOptions): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null };
     useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
     insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
@@ -506,37 +512,42 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
             }, [t]);
             return v;
         },
-        // this is a bit different from 
-        useFetch(queryFn: () => Promise<T[]>, refetchOn: unknown[]): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null } {
+        useLoadData(queryFn: () => (Promise<T[]> | undefined), options?: TableRefreshOptions): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null } {
+            const ops: TableRefreshOptions = {
+                refreshOn: [],
+                refreshMode: 'replace',
+                resetIndex: false,
+                ...options
+            }
+
+            const isQuerying = useRef(false);
             const [status, setStatus] = useState<FetchStatus>('idle');
             const [data, setData] = useState<TableRow<T>[] | null>(null);
             const [error, setError] = useState<string | null>(null);
         
             useEffect(() => {
-                let doUpdate = true;
-                setStatus('loading');
-                queryFn()
-                    // TODO: confirm returned data is valid
-                    .then(d => {
-                        if (doUpdate) {
-                            _clearTable(); // default behavior is to clear the table, but leave the _pk at it's current number to avoid unintended side-effects
-                            _insertRows(d, true);
-                            setStatus('success');
-                            setData(_getAllRows());
-                            setError(null);
+                if (!isQuerying.current) {
+                    isQuerying.current = true;
+                    setStatus('loading');
+                    queryFn()?.then(d => {
+                        if (ops.refreshMode === 'replace') {
+                            _clearTable();
+                            if (ops.resetIndex) {
+                                autoPK = 0;
+                            }
                         }
+                        _insertRows(d, true);
+                        setData(_getAllRows());
+                        setStatus('success');
+                        setError(null);
                     })
                     .catch(err => {
-                        if (doUpdate) {
-                            setStatus('error');
-                            setData(null);
-                            setError(err);
-                        }
-                    })
-                return () => {
-                    doUpdate = false;
-                }; // here to avoid firing on multiple renders
-            }, [refetchOn]);
+                        setStatus('error');
+                        setData(null);
+                        setError(err);
+                    });
+                }
+            }, ops.refreshOn);
             return { data, status, error };
         },
         useRow(pk: PK, notify: RowNotify[] = []): TableRow<T> | undefined {

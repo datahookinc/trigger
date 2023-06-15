@@ -1,4 +1,4 @@
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, waitFor } from '@testing-library/react';
 import { extract, CreateQueue, CreateSingle, CreateTable, type Store, type Table, type Queue, type Single } from '../src';
 import 'isomorphic-fetch'; // required because jest does not recognize node's global fetch API (even though it should when using node v18)
 
@@ -580,22 +580,39 @@ describe('Testing error messages', () => {
     });
 });
 
-describe('Testing useFetch', () => {
+describe('Integration tests for useLoadData()', () => {
     it('should fetch the data and populate the table', async () => {
-
-        // LEFT-OFF: the problem is I need this to be wrapped in an act() for it to render the hook again, but the signature gets all messed-up and I don't think act() should be
-        // nested within the renderHook function...
-        const { result } = renderHook(() => tables.cat.useFetch(() => {
-            return fetch('localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
-        }, []));
-        await new Promise(process.nextTick);
-        // const n = tables.cat.getRowCount();
-        console.log("Still wrong here");
-        console.log(result.current);
-        expect(result.current.error).toBeNull();
-        // expect(result.current.status).toBe('success');
-        // expect(n).toEqual(2);
-        // expect(result.current.data).not.toBeNull();
-        // expect(result.current.data?.length).toBe(2);
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }));
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(result.current.data).not.toBe(null);
+            expect(result.current.data?.length).toBe(2);
+            expect(tables.cat.getRowCount()).toBe(2);
+        });
+    });
+    it('should append data to the table', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { refreshMode: 'append' }));
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(result.current.data).not.toBe(null);
+            expect(result.current.data?.length).toBe(4);
+            expect(tables.cat.getRowCount()).toBe(4);
+        });
+    });
+    it('should refresh the data and reset the index', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true }));
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(result.current.data).not.toBe(null);
+            expect(result.current.data?.length).toBe(2);
+            expect(tables.cat.getRowCount()).toBe(2);
+            expect(tables.cat.getRow(1)).not.toBe(undefined);
+        });
     });
 });
