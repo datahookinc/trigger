@@ -551,7 +551,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
                         .catch((err) => {
                             setStatus('error');
                             setData(null);
-                            setError(err);
+                            setError(String(err));
                         });
                 }
             }, ops.refreshOn);

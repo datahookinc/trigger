@@ -615,4 +615,13 @@ describe('Integration tests for useLoadData()', () => {
             expect(tables.cat.getRow(1)).not.toBe(undefined);
         });
     });
+    it('should return an error and extract the error message', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(async () => {
+            throw new Error('This is my error');
+        }));
+        await waitFor(() => {
+            expect(result.current.status).toBe('error');
+            expect(result.current.error).toBe('Error: This is my error');
+        });
+    });
 });
