@@ -79,14 +79,17 @@ export interface Store {
 type TableRefreshOptions = {
     refreshOn?: unknown[];
     refreshMode?: 'replace' | 'append';
-    resetIndex?:  boolean;   
-}
+    resetIndex?: boolean;
+};
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
-    useLoadData(queryFn: () => (Promise<T[]> | undefined), options?: TableRefreshOptions): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null };
+    useLoadData(
+        queryFn: () => Promise<T[]> | undefined,
+        options?: TableRefreshOptions,
+    ): { data: TableRow<T>[] | null; status: FetchStatus; error: string | null };
     useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
     insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
@@ -321,7 +324,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
         const entries: TableRow<T>[] = [];
         // check all rows first to avoid side-effects
         newRows.forEach((r) => _validateRow(r));
-    
+
         for (let i = 0, len = newRows.length; i < len; i++) {
             const entry = _insertRow(newRows[i]);
             if (entry) {
@@ -335,7 +338,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
             notifyTableSubscribers('rowInsert');
         }
         return entries;
-    }
+    };
 
     const _deleteRow = (idx: number, entry: TableRow<T>): boolean => {
         if (triggerBeforeDelete) {
@@ -512,40 +515,44 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
             }, [t]);
             return v;
         },
-        useLoadData(queryFn: () => (Promise<T[]> | undefined), options?: TableRefreshOptions): { data: TableRow<T>[] | null, status: FetchStatus, error: string | null } {
+        useLoadData(
+            queryFn: () => Promise<T[]> | undefined,
+            options?: TableRefreshOptions,
+        ): { data: TableRow<T>[] | null; status: FetchStatus; error: string | null } {
             const ops: TableRefreshOptions = {
                 refreshOn: [],
                 refreshMode: 'replace',
                 resetIndex: false,
-                ...options
-            }
+                ...options,
+            };
 
             const isQuerying = useRef(false);
             const [status, setStatus] = useState<FetchStatus>('idle');
             const [data, setData] = useState<TableRow<T>[] | null>(null);
             const [error, setError] = useState<string | null>(null);
-        
+
             useEffect(() => {
                 if (!isQuerying.current) {
                     isQuerying.current = true;
                     setStatus('loading');
-                    queryFn()?.then(d => {
-                        if (ops.refreshMode === 'replace') {
-                            _clearTable();
-                            if (ops.resetIndex) {
-                                autoPK = 0;
+                    queryFn()
+                        ?.then((d) => {
+                            if (ops.refreshMode === 'replace') {
+                                _clearTable();
+                                if (ops.resetIndex) {
+                                    autoPK = 0;
+                                }
                             }
-                        }
-                        _insertRows(d, true);
-                        setData(_getAllRows());
-                        setStatus('success');
-                        setError(null);
-                    })
-                    .catch(err => {
-                        setStatus('error');
-                        setData(null);
-                        setError(err);
-                    });
+                            _insertRows(d, true);
+                            setData(_getAllRows());
+                            setStatus('success');
+                            setError(null);
+                        })
+                        .catch((err) => {
+                            setStatus('error');
+                            setData(null);
+                            setError(err);
+                        });
                 }
             }, ops.refreshOn);
             return { data, status, error };
