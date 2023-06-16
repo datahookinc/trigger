@@ -146,7 +146,10 @@ function _checkTable<T>(t: DefinedTable<T>): number {
 export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>> {
     // turn t into an object if provided as an array of column names; will implicitly remove duplicate column names
     if (t instanceof Array) {
-        t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => { acc[cur] = []; return acc }, { } as DefinedTable<T>);
+        t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => {
+            acc[cur] = [];
+            return acc;
+        }, {} as DefinedTable<T>);
     }
     const nInitialLength = _checkTable(t);
     // setup the primary keys (accounting for any initial values)
@@ -402,9 +405,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         const rowKeys = new Set(Object.keys(row));
         const colKeys = new Set(originalColumnNames);
         if (rowKeys.has('_pk')) {
-            logWarning(
-                `attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`,
-            );
+            logWarning(`attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`);
             rowKeys.delete('_pk');
         }
 
