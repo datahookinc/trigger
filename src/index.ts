@@ -143,7 +143,11 @@ function _checkTable<T>(t: DefinedTable<T>): number {
 }
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableRow<T>> {
+export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>> {
+    // turn t into an object if provided as an array of column names; will implicitly remove duplicate column names
+    if (t instanceof Array) {
+        t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => { acc[cur] = []; return acc }, { } as DefinedTable<T>);
+    }
     const nInitialLength = _checkTable(t);
     // setup the primary keys (accounting for any initial values)
     let autoPK: PK = 0;
@@ -304,7 +308,6 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
                     entry = v;
                 }
             }
-            // if the user returns nothing, or true, then the entry is considered correct for insertion
         }
         ++autoPK; // commit change to primary key
         for (const k in entry) {
@@ -396,24 +399,27 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
     };
 
     const _validateRow = (row: T): boolean => {
-        const keys = Object.keys(row);
-        keys.forEach((k) => {
-            if (k == '_pk') {
-                logWarning(
-                    `attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`,
-                );
-            }
+        const rowKeys = new Set(Object.keys(row));
+        const colKeys = new Set(originalColumnNames);
+        if (rowKeys.has('_pk')) {
+            logWarning(
+                `attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`,
+            );
+            rowKeys.delete('_pk');
+        }
 
-            if (!originalColumnNames.includes(k)) {
-                logAndThrowError(`attempting to insert value into column "${k}", which does not exist in table`);
+        for (const elem of rowKeys) {
+            if (!colKeys.has(elem)) {
+                logAndThrowError(`attempting to insert value into column "${elem}", which does not exist in table`);
             }
-        });
+        }
 
-        originalColumnNames.forEach((k) => {
-            if (!keys.includes(k)) {
-                logAndThrowError(`did not provide column "${k}" when attempting to insert row into table`);
+        for (const elem of colKeys) {
+            if (!rowKeys.has(elem)) {
+                logAndThrowError(`did not provide column "${elem}" when attempting to insert row into table`);
             }
-        });
+        }
+
         return true;
     };
 
@@ -543,7 +549,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T>): Table<TableR
                                     autoPK = 0;
                                 }
                             }
-                            _insertRows(d, true);
+                            _insertRows(d, true); // validates all rows before insertion
                             setData(_getAllRows());
                             setStatus('success');
                             setError(null);

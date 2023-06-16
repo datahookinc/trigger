@@ -46,10 +46,10 @@ interface MyStore extends Store {
 
 const s: MyStore = {
     tables: {
-        customers: CreateTable<Customer>({ customerID: [], firstName: [], lastName: [] }),
-        orders: CreateTable<Order>({ orderID: [], customerID: [], orderLocation: [], orderDate: [] }),
+        customers: CreateTable<Customer>(['customerID', 'firstName', 'lastName']),
+        orders: CreateTable<Order>(['orderID', 'customerID', 'orderLocation', 'orderDate']),
         company: CreateTable<Company>({ companyID: [1, 2, 3], name: ['abc', 'def', 'ghi'], location: ['CA', 'US', 'EU'] }),
-        cat: CreateTable<Cat>({ name: [], age: [] }),
+        cat: CreateTable<Cat>(['name', 'age']),
     },
     queues: {
         eventQueue: CreateQueue<string>(),

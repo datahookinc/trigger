@@ -27,7 +27,7 @@
     "format": "prettier --config .prettierrc --write \"src/**/*.ts\"",
     "lint": "eslint . --ext .ts",
     "format-and-lint": "npm run lint && npm run format",
-    "start-server": "json-server ./tests/data.json"
+    "api-server": "json-server ./tests/data.json"
   },
   "repository": {
     "type": "git",
