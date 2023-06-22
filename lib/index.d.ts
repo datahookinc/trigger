@@ -56,6 +56,7 @@ export type Table<T extends UserRow> = {
     getRowCount(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
     getColumnNames(): (keyof TableRow<T>)[];
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void;
+    clear(resetIndex?: boolean): void;
 };
 export declare function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>>;
 export type QueueItem<T> = {
