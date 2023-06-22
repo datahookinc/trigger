@@ -991,7 +991,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             if (resetIndex) {
                 autoPK = 0;
             }
-        }
+        },
     };
 }
 
