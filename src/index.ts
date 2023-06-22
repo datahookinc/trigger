@@ -112,6 +112,7 @@ export type Table<T extends UserRow> = {
     getRowCount(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
     getColumnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
+    clear(resetIndex?: boolean): void; // clear the tables contents
 };
 
 // _checkTable throws an error if the table is not instantiated correctly.
@@ -985,6 +986,12 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }, {} as { [index: number]: Omit<TableRow<T>, '_pk'> });
             console.table(transformed);
         },
+        clear(resetIndex = true) {
+            _clearTable();
+            if (resetIndex) {
+                autoPK = 0;
+            }
+        }
     };
 }
 

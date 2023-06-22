@@ -504,6 +504,30 @@ describe('Testing table triggers', () => {
             expect(nv?.firstName).toEqual('Changed before update');
         }
     });
+    it('should clear the table and reset the index', () => {
+        tables.customers.clear();
+        const c = tables.customers.insertRows([
+            { customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' },
+            { customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' },
+            { customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' },
+        ]);
+        expect(c).toBeTruthy();
+        if (c) {
+            expect(c[c.length - 1]._pk).toBe(3);
+        }
+    });
+    it('should clear the table and not reset the index', () => {
+        const c = tables.customers.insertRows([
+            { customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' },
+            { customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' },
+            { customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' },
+        ]);
+        tables.customers.clear(false);
+        expect(c).toBeTruthy();
+        if (c) {
+            expect(c[c.length - 1]._pk).toBe(6);
+        }
+    });
 });
 
 describe('Testing table initial values', () => {
