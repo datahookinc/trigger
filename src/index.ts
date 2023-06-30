@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const errorStyling = `
     background-color: black;
@@ -489,7 +489,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
     };
 
     return {
-        use(where: ((row: TableRow<T>) => boolean) | null, notify: TableNotify[] = []): TableRow<T>[] {
+        use(where: ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T>[] {
             const [v, setV] = useState<TableRow<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
             const hasChanged = useRef((newValues: TableRow<T>[]) => tableHasChanged(v, newValues));
@@ -526,6 +526,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         useLoadData(
             queryFn: () => Promise<T[]> | undefined,
             options?: TableRefreshOptions,
+            notify: TableNotify[] = []
         ): { data: TableRow<T>[] | null; status: FetchStatus; error: string | null } {
             const ops: TableRefreshOptions = {
                 refreshOn: [],
@@ -538,7 +539,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             const [status, setStatus] = useState<FetchStatus>('idle');
             const [data, setData] = useState<TableRow<T>[] | null>(null);
             const [error, setError] = useState<string | null>(null);
+            const notifyList = useRef(Array.from(new Set(notify)));
 
+            // responsible for loading data into the table
             useEffect(() => {
                 if (!isQuerying.current) {
                     isQuerying.current = true;
@@ -563,6 +566,23 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         });
                 }
             }, ops.refreshOn);
+
+            // similar to use(); responsible for updating the component when there are changes to the table
+            useEffect(() => {
+                const subscribe = (nv: TableRow<T>[]) => {
+                    setData(nv);
+                };
+
+                registerTable(subscribe, notifyList.current);
+
+                // NOTE: Initialize here because of the delay between useState and useEffect which means
+                // changes could have been dispatched before this component was registered to listen for them
+                setData(_getAllRows());
+                // unregister when component unmounts;
+                return () => {
+                    unregisterTable(subscribe);
+                };
+            }, [t]);
             return { data, status, error };
         },
         useRow(pk: PK, notify: RowNotify[] = []): TableRow<T> | undefined {
@@ -1049,7 +1069,7 @@ export function CreateQueue<T>(): Queue<T> {
 }
 
 export type Single<T> = {
-    use(): T;
+    use(where?: (currentValue: T) => boolean | undefined): T;
     // Note: See this thread for more information about working around the call signature: https://github.com/microsoft/TypeScript/issues/37663 for why (newValue: T | ((currentValue: T) => T)): T won't work
     set(newValue: T): T;
     setFn(fn: (currentValue: T) => T): T;
@@ -1080,11 +1100,19 @@ export function CreateSingle<T>(s: T): Single<T> {
     };
 
     return {
-        use(): T {
+        use(where?: (currentValue: T) => boolean | undefined): T {
             const [v, setV] = useState<T>(() => single); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+            const whereClause = useRef(where);
             useEffect(() => {
                 const subscribe = (nv: T) => {
-                    setV(nv);
+                    // check that the state should be updated
+                    if (whereClause.current) {
+                        if (whereClause.current(nv)) {
+                            setV(nv);
+                        }
+                    } else {
+                        setV(nv);
+                    }
                 };
                 registerSingle(subscribe);
                 setV(single);

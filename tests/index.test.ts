@@ -639,6 +639,27 @@ describe('Integration tests for useLoadData()', () => {
             expect(tables.cat.getRow(1)).not.toBe(undefined);
         });
     });
+    it('should update the data when the table changes', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true }));
+
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(result.current.data).not.toBe(null);
+        });
+
+        act(() => {
+            tables.cat.deleteRow(1);
+            tables.cat.updateRow(2, { name: 'NewCat' });
+        });
+
+        await waitFor(() => {
+            expect(result.current.data?.length).toBe(1);
+            expect(tables.cat.getRowCount()).toBe(1);
+            expect(tables.cat.getRow(2)?.name).toBe('NewCat');
+        });
+    });
     it('should return an error and extract the error message', async () => {
         const { result } = renderHook(() => tables.cat.useLoadData(async () => {
             throw new Error('This is my error');
