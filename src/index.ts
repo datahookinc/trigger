@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const errorStyling = `
     background-color: black;
@@ -526,7 +526,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         useLoadData(
             queryFn: () => Promise<T[]> | undefined,
             options?: TableRefreshOptions,
-            notify: TableNotify[] = []
+            notify: TableNotify[] = [],
         ): { data: TableRow<T>[] | null; status: FetchStatus; error: string | null } {
             const ops: TableRefreshOptions = {
                 refreshOn: [],
