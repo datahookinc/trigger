@@ -78,12 +78,12 @@ export interface Store {
 /**
  * Default values:
  * {
- *    refreshOn: [], 
+ *    refreshOn: [],
  *    refreshMode: 'replace'
  *    resetIndex: false,
  *    where: null,
  *    notify: [],
- * }              
+ * }
  */
 type TableRefreshOptions<T> = {
     refreshOn?: unknown[];
@@ -97,10 +97,7 @@ export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed du
 
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
-    useLoadData(
-        queryFn: () => Promise<T[]> | undefined,
-        options?: TableRefreshOptions<T>,
-    ): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
+    useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
     useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
     insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
@@ -593,7 +590,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         if (hasChanged.current(filtered)) {
                             setData(nv.filter(whereClause.current));
                         }
-                    } else { 
+                    } else {
                         setData(nv);
                     }
                 };
