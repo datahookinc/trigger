@@ -23,18 +23,30 @@ export interface Store {
         [index: string]: Single<unknown>;
     };
 }
-type TableRefreshOptions = {
+/**
+ * Default values:
+ * {
+ *    refreshOn: [],
+ *    refreshMode: 'replace'
+ *    resetIndex: false,
+ *    where: null,
+ *    notify: [],
+ * }
+ */
+type TableRefreshOptions<T> = {
     refreshOn?: unknown[];
     refreshMode?: 'replace' | 'append';
     resetIndex?: boolean;
+    where?: ((row: TableRow<T>) => boolean) | null;
+    notify?: TableNotify[];
 };
 export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
-    useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions): {
-        data: TableRow<T>[] | null;
+    useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): {
+        data: TableRow<T>[];
         status: FetchStatus;
         error: string | null;
     };
