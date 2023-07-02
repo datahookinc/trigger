@@ -611,8 +611,8 @@ describe('Integration tests for useLoadData()', () => {
         }));
         await waitFor(() => {
             expect(result.current.status).toBe('success');
-            expect(result.current.data).not.toBe(null);
-            expect(result.current.data?.length).toBe(2);
+            expect(result.current.error).toBe(null);
+            expect(result.current.data.length).toBe(2);
             expect(tables.cat.getRowCount()).toBe(2);
         });
     });
@@ -622,19 +622,32 @@ describe('Integration tests for useLoadData()', () => {
         }, { refreshMode: 'append' }));
         await waitFor(() => {
             expect(result.current.status).toBe('success');
-            expect(result.current.data).not.toBe(null);
-            expect(result.current.data?.length).toBe(4);
+            expect(result.current.error).toBe(null);
+            expect(result.current.data.length).toBe(4);
             expect(tables.cat.getRowCount()).toBe(4);
         });
     });
     it('should refresh the data and reset the index', async () => {
         const { result } = renderHook(() => tables.cat.useLoadData(() => {
             return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
-        }, { resetIndex: true }));
+        }, { resetIndex: true, refreshMode: 'replace' }));
         await waitFor(() => {
             expect(result.current.status).toBe('success');
-            expect(result.current.data).not.toBe(null);
-            expect(result.current.data?.length).toBe(2);
+            expect(result.current.error).toBe(null);
+            expect(result.current.data.length).toBe(2);
+            expect(tables.cat.getRowCount()).toBe(2);
+            expect(tables.cat.getRow(1)).not.toBe(undefined);
+        });
+    });
+    it("should refresh the data and only show cats named 'PJ'", async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true, refreshMode: 'replace', where: row => row.name === 'PJ' }));
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(result.current.error).toBe(null);
+            expect(result.current.data.length).toBe(1);
+            expect(result.current.data[0].name).toBe('PJ');
             expect(tables.cat.getRowCount()).toBe(2);
             expect(tables.cat.getRow(1)).not.toBe(undefined);
         });
@@ -646,7 +659,7 @@ describe('Integration tests for useLoadData()', () => {
 
         await waitFor(() => {
             expect(result.current.status).toBe('success');
-            expect(result.current.data).not.toBe(null);
+            expect(result.current.data.length).toBeGreaterThan(0);
         });
 
         act(() => {

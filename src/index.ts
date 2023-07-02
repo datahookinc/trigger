@@ -75,11 +75,22 @@ export interface Store {
         [index: string]: Single<unknown>;
     };
 }
-
-type TableRefreshOptions = {
+/**
+ * Default values:
+ * {
+ *    refreshOn: [], 
+ *    refreshMode: 'replace'
+ *    resetIndex: false,
+ *    where: null,
+ *    notify: [],
+ * }              
+ */
+type TableRefreshOptions<T> = {
     refreshOn?: unknown[];
     refreshMode?: 'replace' | 'append';
     resetIndex?: boolean;
+    where?: ((row: TableRow<T>) => boolean) | null;
+    notify?: TableNotify[];
 };
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
@@ -88,8 +99,8 @@ export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useLoadData(
         queryFn: () => Promise<T[]> | undefined,
-        options?: TableRefreshOptions,
-    ): { data: TableRow<T>[] | null; status: FetchStatus; error: string | null };
+        options?: TableRefreshOptions<T>,
+    ): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
     useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
     insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
@@ -525,21 +536,27 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         },
         useLoadData(
             queryFn: () => Promise<T[]> | undefined,
-            options?: TableRefreshOptions,
-            notify: TableNotify[] = [],
-        ): { data: TableRow<T>[] | null; status: FetchStatus; error: string | null } {
-            const ops: TableRefreshOptions = {
+            options?: TableRefreshOptions<T>,
+        ): { data: TableRow<T>[]; status: FetchStatus; error: string | null } {
+            const ops: TableRefreshOptions<T> = {
                 refreshOn: [],
                 refreshMode: 'replace',
                 resetIndex: false,
+                where: null,
+                notify: [],
                 ...options,
             };
 
             const isQuerying = useRef(false);
             const [status, setStatus] = useState<FetchStatus>('idle');
-            const [data, setData] = useState<TableRow<T>[] | null>(null);
+            const [data, setData] = useState<TableRow<T>[]>(ops.where ? _getAllRows().filter(ops.where) : _getAllRows());
             const [error, setError] = useState<string | null>(null);
-            const notifyList = useRef(Array.from(new Set(notify)));
+
+            // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
+            const hasChanged = useRef((newValues: TableRow<T>[]) => tableHasChanged(data, newValues));
+            const notifyList = useRef(Array.from(new Set(ops.notify)));
+            const whereClause = useRef(ops.where);
+            hasChanged.current = (newValues: TableRow<T>[]) => tableHasChanged(data, newValues);
 
             // responsible for loading data into the table
             useEffect(() => {
@@ -555,13 +572,13 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                                 }
                             }
                             _insertRows(d, true); // validates all rows before insertion
-                            setData(_getAllRows());
+                            setData(ops.where ? _getAllRows().filter(ops.where) : _getAllRows());
                             setStatus('success');
                             setError(null);
                         })
                         .catch((err) => {
                             setStatus('error');
-                            setData(null);
+                            setData([]);
                             setError(String(err));
                         });
                 }
@@ -570,14 +587,23 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             // similar to use(); responsible for updating the component when there are changes to the table
             useEffect(() => {
                 const subscribe = (nv: TableRow<T>[]) => {
-                    setData(nv);
+                    if (whereClause.current) {
+                        // compare to see if changes effect rows this component is hooking into
+                        const filtered = nv.filter(whereClause.current);
+                        if (hasChanged.current(filtered)) {
+                            setData(nv.filter(whereClause.current));
+                        }
+                    } else { 
+                        setData(nv);
+                    }
                 };
 
                 registerTable(subscribe, notifyList.current);
 
                 // NOTE: Initialize here because of the delay between useState and useEffect which means
                 // changes could have been dispatched before this component was registered to listen for them
-                setData(_getAllRows());
+                const currentTableValues = whereClause.current ? _getAllRows().filter(whereClause.current) : _getAllRows();
+                setData(currentTableValues);
                 // unregister when component unmounts;
                 return () => {
                     unregisterTable(subscribe);
