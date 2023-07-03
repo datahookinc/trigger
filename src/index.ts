@@ -95,7 +95,7 @@ type TableRefreshOptions<T> = {
     notify?: TableNotify[];
     fetchOnMount?: boolean;
     onSuccess?(): void;
-    filter?: ((row: TableRow<T>) => boolean);
+    filter?: (row: TableRow<T>) => boolean;
 };
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
