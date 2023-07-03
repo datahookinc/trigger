@@ -642,7 +642,7 @@ describe('Integration tests for useLoadData()', () => {
     it("should refresh the data and only show cats named 'PJ'", async () => {
         const { result } = renderHook(() => tables.cat.useLoadData(() => {
             return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
-        }, { resetIndex: true, refreshMode: 'replace', where: row => row.name === 'PJ' }));
+        }, { resetIndex: true, refreshMode: 'replace', filter: row => row.name === 'PJ' }));
         await waitFor(() => {
             expect(result.current.status).toBe('success');
             expect(result.current.error).toBe(null);

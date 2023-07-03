@@ -83,14 +83,19 @@ export interface Store {
  *    resetIndex: false,
  *    where: null,
  *    notify: [],
+ *    refetchOnMount: boolean;
+ *    onSuccess: () => void;
+ *    resultsFilter: (row: TableRow<T>) => boolean
  * }
  */
 type TableRefreshOptions<T> = {
     refreshOn?: unknown[];
     refreshMode?: 'replace' | 'append';
     resetIndex?: boolean;
-    where?: ((row: TableRow<T>) => boolean) | null;
     notify?: TableNotify[];
+    fetchOnMount?: boolean;
+    onSuccess?(): void;
+    filter?: ((row: TableRow<T>) => boolean);
 };
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
@@ -539,25 +544,25 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 refreshOn: [],
                 refreshMode: 'replace',
                 resetIndex: false,
-                where: null,
                 notify: [],
+                fetchOnMount: true,
                 ...options,
             };
 
             const isQuerying = useRef(false);
             const [status, setStatus] = useState<FetchStatus>('idle');
-            const [data, setData] = useState<TableRow<T>[]>(ops.where ? _getAllRows().filter(ops.where) : _getAllRows());
+            const [data, setData] = useState<TableRow<T>[]>(ops.filter ? _getAllRows().filter(ops.filter) : _getAllRows());
             const [error, setError] = useState<string | null>(null);
 
             // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
             const hasChanged = useRef((newValues: TableRow<T>[]) => tableHasChanged(data, newValues));
             const notifyList = useRef(Array.from(new Set(ops.notify)));
-            const whereClause = useRef(ops.where);
+            const whereClause = useRef(ops.filter);
             hasChanged.current = (newValues: TableRow<T>[]) => tableHasChanged(data, newValues);
 
             // responsible for loading data into the table
             useEffect(() => {
-                if (!isQuerying.current) {
+                if (!isQuerying.current && ops.fetchOnMount) {
                     isQuerying.current = true;
                     setStatus('loading');
                     queryFn()
@@ -569,9 +574,12 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                                 }
                             }
                             _insertRows(d, true); // validates all rows before insertion
-                            setData(ops.where ? _getAllRows().filter(ops.where) : _getAllRows());
+                            setData(ops.filter ? _getAllRows().filter(ops.filter) : _getAllRows());
                             setStatus('success');
                             setError(null);
+                            if (ops.onSuccess) {
+                                ops.onSuccess();
+                            }
                         })
                         .catch((err) => {
                             setStatus('error');
