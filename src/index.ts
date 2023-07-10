@@ -1107,7 +1107,6 @@ export type Single<T> = {
     onSet(fn: (newValue: T) => void): void;
     onGet(fn: (value: T) => void): void;
     get(): T;
-    notify(): void;
 };
 
 export function CreateSingle<T>(s: T): Single<T> {
@@ -1152,7 +1151,7 @@ export function CreateSingle<T>(s: T): Single<T> {
                 return () => {
                     unregisterSingle(subscribe);
                 };
-            });
+            }, []);
             return v;
         },
         get(): T {
@@ -1184,9 +1183,6 @@ export function CreateSingle<T>(s: T): Single<T> {
         },
         onGet(fn: (value: T) => void) {
             triggers['onGet'] = fn;
-        },
-        notify() {
-            notifySubscribers(single);
         },
     };
 }
