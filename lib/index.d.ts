@@ -1,7 +1,7 @@
-/** Autoincrementing primary key required for tables */
-type PK = number;
-type TableNotify = 'rowInsert' | 'rowDelete' | 'rowUpdate';
-type RowNotify = 'rowUpdate' | 'rowDelete';
+/** Autoincrementing _id required for tables */
+type AUTOID = number;
+type TableNotify = 'insert' | 'delete' | 'update';
+type RowNotify = 'update' | 'delete';
 type AllowedPrimitives = string | number | Date | boolean | null;
 type UserRow = {
     [index: string]: AllowedPrimitives;
@@ -10,7 +10,7 @@ export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 export type TableRow<T> = {
     [K in keyof T]: T[K];
 } & {
-    _pk: number;
+    _id: number;
 };
 export interface Store {
     tables?: {
@@ -31,42 +31,49 @@ export interface Store {
  *    resetIndex: false,
  *    where: null,
  *    notify: [],
+ *    refetchOnMount: boolean;
+ *    onSuccess: () => void;
+ *    resultsFilter: (row: TableRow<T>) => boolean
  * }
  */
 type TableRefreshOptions<T> = {
     refreshOn?: unknown[];
     refreshMode?: 'replace' | 'append';
     resetIndex?: boolean;
-    where?: ((row: TableRow<T>) => boolean) | null;
     notify?: TableNotify[];
+    fetchOnMount?: boolean;
+    onSuccess?(): void;
+    filter?: (row: TableRow<T>) => boolean;
 };
 export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): {
         data: TableRow<T>[];
         status: FetchStatus;
         error: string | null;
     };
-    useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
-    insertRow(row: T): TableRow<T> | undefined;
-    insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
+    insertOne(row: T): TableRow<T> | undefined;
+    insertMany(rows: T[], batchNotify?: boolean): TableRow<T>[];
     onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterInsert(fn: (row: TableRow<T>) => void): void;
-    deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean;
-    deleteRows(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number;
+    deleteById(_id: AUTOID): boolean;
+    deleteOne(where: Partial<T> | ((row: TableRow<T>) => boolean)): boolean;
+    deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number;
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
-    updateRow(_pk: PK, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
-    updateRows(setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), where?: Partial<T> | ((row: TableRow<T>) => boolean), batchNotify?: boolean): TableRow<T>[];
+    updateOneById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
+    updateMany(setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), where?: Partial<T> | ((row: TableRow<T>) => boolean), batchNotify?: boolean): TableRow<T>[];
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
-    getRow(where: PK | Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined;
-    getRows(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[];
-    getRowCount(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
-    getColumnNames(): (keyof TableRow<T>)[];
+    findById(_id: AUTOID): TableRow<T> | undefined;
+    findOne(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined;
+    find(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[];
+    count(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
+    columnNames(): (keyof TableRow<T>)[];
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void;
     clear(resetIndex?: boolean): void;
 };

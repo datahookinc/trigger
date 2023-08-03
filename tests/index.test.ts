@@ -138,12 +138,12 @@ describe('Testing Tables', () => {
     });
 
     it('should return undefined when row does not exist', () => {
-        const { result } = renderHook(() => tables.customers.useId(-1));
+        const { result } = renderHook(() => tables.customers.useById(-1));
         expect(result.current).toBeUndefined();
     });
 
     it('should return row when it exists', () => {
-        const { result } = renderHook(() => tables.customers.useId(2));
+        const { result } = renderHook(() => tables.customers.useById(2));
         expect(result.current?._id).toBe(2);
         expect(result.current?.firstName).toBe('Sally');
     });
@@ -209,7 +209,7 @@ describe('Testing Tables', () => {
     });
 
     it('should return an undefined row when the row is removed', () => {
-        const { result } = renderHook(() => tables.customers.useId(3));
+        const { result } = renderHook(() => tables.customers.useById(3));
         act(() => {
             tables.customers.deleteById(3);
         });
@@ -222,7 +222,7 @@ describe('Testing Tables', () => {
     });
 
     it('should be notified of updates when a table row is updated', () => {
-        const { result } = renderHook(() => tables.customers.useId(2));
+        const { result } = renderHook(() => tables.customers.useById(2));
         act(() => {
             tables.customers.updateOneById(2, { lastName: 'McBilly' });
         });

@@ -102,7 +102,7 @@ export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed du
 
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
-    useId(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
+    useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
     insertOne(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
     insertMany(rows: T[], batchNotify?: boolean): TableRow<T>[];
@@ -122,7 +122,7 @@ export type Table<T extends UserRow> = {
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
     findById(_id: AUTOID): TableRow<T> | undefined;
-    findOne(where: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined; // returns the first row that matches
+    findOne(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined; // returns the first row that matches
     find(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[]; // returns all rows that match
     count(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
     columnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
@@ -618,7 +618,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }, [t]);
             return { data, status, error };
         },
-        useId(AUTOID: AUTOID, notify: RowNotify[] = []): TableRow<T> | undefined {
+        useById(AUTOID: AUTOID, notify: RowNotify[] = []): TableRow<T> | undefined {
             const [v, setV] = useState<TableRow<T> | undefined>(() => _getRowByAUTOID(AUTOID)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid firing useEffect when the notify object reference changes
             const notifyList = useRef(Array.from(new Set(notify)));
@@ -914,10 +914,10 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         findById(_id: AUTOID): TableRow<T> | undefined {
             return _getRowByAUTOID(_id);
         },
-        findOne(where: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T> | undefined {
+        findOne(where?: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T> | undefined {
             const numRows = _getRowCount();
+            let idx = -1;
             if (numRows > 0) {
-                let idx = -1;
                 switch (typeof where) {
                     case 'function': {
                         // loop through the rows until we find a matching index, returns the first match if any
@@ -962,17 +962,18 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         break;
                     }
                     default: {
-                        return undefined;
+                        idx = 0; // return the first row if no criteria is provided
+                        break;
                     }
-                }
-                if (idx >= 0) {
-                    const entry = _getRowByIndex(idx);
-                    if (entry) {
-                        return entry;
-                    }
-                    return undefined;
                 }
             }
+            if (idx >= 0) {
+                const entry = _getRowByIndex(idx);
+                if (entry) {
+                    return entry;
+                }
+            }
+            return undefined;
         },
         count(where?: Partial<T> | ((row: TableRow<T>) => boolean)): number {
             switch (typeof where) {
