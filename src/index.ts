@@ -648,7 +648,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         },
         deleteById(_id: AUTOID): boolean {
             let i = table._id.length;
-            while(i--) {
+            while (i--) {
                 if (table._id[i] === _id) {
                     const entry = _getRowByIndex(i);
                     if (entry) {
