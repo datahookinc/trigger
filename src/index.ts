@@ -34,8 +34,8 @@ function logAndThrowError(error: string) {
 /** Autoincrementing _id required for tables */
 type AUTOID = number;
 
-type TableNotify = 'insert' | 'delete' | 'update';
-type RowNotify = 'update' | 'delete';
+type TableNotify = 'onInsert' | 'onDelete' | 'onUpdate';
+type RowNotify = 'onUpdate' | 'onDelete';
 /** Notify is a union of the available notification events that can be subscribed to
  * - insert
  * - delete
@@ -351,13 +351,13 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             const entry = _insertRow(newRows[i]);
             if (entry) {
                 if (!batchNotify) {
-                    notifyTableSubscribers('insert');
+                    notifyTableSubscribers('onInsert');
                 }
                 entries.push(entry);
             }
         }
         if (batchNotify) {
-            notifyTableSubscribers('insert');
+            notifyTableSubscribers('onInsert');
         }
         return entries;
     };
@@ -639,7 +639,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             _validateRow(newRow);
             const entry = _insertRow(newRow);
             if (entry) {
-                notifyTableSubscribers('insert');
+                notifyTableSubscribers('onInsert');
             }
             return entry;
         },
@@ -655,8 +655,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         const deleted = _deleteRow(i, entry);
                         if (deleted) {
                             // notify subscribers of changes to row and table
-                            notifyRowSubscribers('delete', entry._id);
-                            notifyTableSubscribers('delete');
+                            notifyRowSubscribers('onDelete', entry._id);
+                            notifyTableSubscribers('onDelete');
                         }
                         return deleted;
                     }
@@ -709,8 +709,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         const deleted = _deleteRow(i, entry);
                         if (deleted) {
                             // notify subscribers of changes to row and table
-                            notifyRowSubscribers('delete', entry._id);
-                            notifyTableSubscribers('delete');
+                            notifyRowSubscribers('onDelete', entry._id);
+                            notifyTableSubscribers('onDelete');
                         }
                         return deleted;
                     }
@@ -775,9 +775,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         const deleted = _deleteRow(i, entry);
                         if (deleted) {
                             // notify subscribers of changes to row and table
-                            notifyRowSubscribers('delete', entry._id);
+                            notifyRowSubscribers('onDelete', entry._id);
                             if (!batchNotify) {
-                                notifyTableSubscribers('delete');
+                                notifyTableSubscribers('onDelete');
                             }
                             numRemoved++;
                         }
@@ -785,7 +785,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 }
             }
             if (batchNotify) {
-                notifyTableSubscribers('delete');
+                notifyTableSubscribers('onDelete');
             }
             return numRemoved;
         },
@@ -821,8 +821,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                     }
                     if (updated) {
                         // notify subscribers of changes to row and table
-                        notifyRowSubscribers('update', currentEntry._id);
-                        notifyTableSubscribers('update');
+                        notifyRowSubscribers('onUpdate', currentEntry._id);
+                        notifyTableSubscribers('onUpdate');
                     }
                     return updated;
                 }
@@ -894,9 +894,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         }
 
                         if (updated) {
-                            notifyRowSubscribers('update', currentEntry._id);
+                            notifyRowSubscribers('onUpdate', currentEntry._id);
                             if (!batch) {
-                                notifyTableSubscribers('update');
+                                notifyTableSubscribers('onUpdate');
                             }
                             entries.push(updated);
                         }
@@ -904,7 +904,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 }
             }
             if (batch) {
-                notifyTableSubscribers('update');
+                notifyTableSubscribers('onUpdate');
             }
             return entries;
         },
