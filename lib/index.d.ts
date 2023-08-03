@@ -65,7 +65,7 @@ export type Table<T extends UserRow> = {
     deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number;
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
-    updateOneById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
+    updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
     updateMany(setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), where?: Partial<T> | ((row: TableRow<T>) => boolean), batchNotify?: boolean): TableRow<T>[];
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
