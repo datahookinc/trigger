@@ -1,7 +1,7 @@
 /** Autoincrementing _id required for tables */
 type AUTOID = number;
-type TableNotify = 'insert' | 'delete' | 'update';
-type RowNotify = 'update' | 'delete';
+type TableNotify = 'onInsert' | 'onDelete' | 'onUpdate';
+type RowNotify = 'onUpdate' | 'onDelete';
 type AllowedPrimitives = string | number | Date | boolean | null;
 type UserRow = {
     [index: string]: AllowedPrimitives;
