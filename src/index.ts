@@ -113,7 +113,7 @@ export type Table<T extends UserRow> = {
     deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
-    updateOneById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
+    updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
     updateMany(
         setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
         where?: Partial<T> | ((row: TableRow<T>) => boolean),
@@ -789,7 +789,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }
             return numRemoved;
         },
-        updateOneById(AUTOID: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined {
+        updateById(AUTOID: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined {
             let idx = -1;
             // find the idx where the AUTOID exists in this table
             for (let i = 0, len = table._id.length; i < len; i++) {

@@ -151,7 +151,7 @@ describe('Testing Tables', () => {
     it('should update the row using the object approach', () => {
         let order = tables.orders.findById(1);
         if (order) {
-            tables.orders.updateOneById(order._id, { orderLocation: 'Canada' });
+            tables.orders.updateById(order._id, { orderLocation: 'Canada' });
             order = tables.orders.findById(order._id);
             expect(order?.orderLocation).toEqual('Canada');
         } else {
@@ -162,7 +162,7 @@ describe('Testing Tables', () => {
     it('should update the row using the function approach', () => {
         let order = tables.orders.findById(1);
         if (order) {
-            tables.orders.updateOneById(order._id, (o) => {
+            tables.orders.updateById(order._id, (o) => {
                 o.orderLocation = 'Europe';
                 return o;
             });
@@ -224,7 +224,7 @@ describe('Testing Tables', () => {
     it('should be notified of updates when a table row is updated', () => {
         const { result } = renderHook(() => tables.customers.useById(2));
         act(() => {
-            tables.customers.updateOneById(2, { lastName: 'McBilly' });
+            tables.customers.updateById(2, { lastName: 'McBilly' });
         });
         expect(result.current?.lastName).toBe('McBilly');
     });
@@ -466,9 +466,9 @@ describe('Testing table triggers', () => {
             const c = tables.customers.insertOne({ customerID: 10, firstName: 'fake', lastName: 'McCustomer' });
             expect(c).toBeTruthy();
             if (c) {
-                tables.customers.updateOneById(c._id, { firstName: 'NewFakeName' });
-                tables.customers.updateOneById(c._id, { firstName: 'NewNewFakeName' });
-                tables.customers.updateOneById(c._id, { firstName: 'OldFakeName' });
+                tables.customers.updateById(c._id, { firstName: 'NewFakeName' });
+                tables.customers.updateById(c._id, { firstName: 'NewNewFakeName' });
+                tables.customers.updateById(c._id, { firstName: 'OldFakeName' });
             }
         });
         expect(result.current).toEqual(3);
@@ -499,7 +499,7 @@ describe('Testing table triggers', () => {
         const c = tables.customers.insertOne({ customerID: 10, firstName: 'UpdateMe', lastName: 'McCustomer' });
         expect(c).toBeTruthy();
         if (c) {
-            const nv = tables.customers.updateOneById(c._id, { firstName: 'Something else' });
+            const nv = tables.customers.updateById(c._id, { firstName: 'Something else' });
             expect(nv).toBeTruthy();
             expect(nv?.firstName).toEqual('Changed before update');
         }
@@ -664,7 +664,7 @@ describe('Integration tests for useLoadData()', () => {
 
         act(() => {
             tables.cat.deleteById(1);
-            tables.cat.updateOneById(2, { name: 'NewCat' });
+            tables.cat.updateById(2, { name: 'NewCat' });
         });
 
         await waitFor(() => {
