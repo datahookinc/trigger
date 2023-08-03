@@ -31,15 +31,15 @@ function logAndThrowError(error: string) {
     throw newError(error);
 }
 
-/** Autoincrementing primary key required for tables */
-type PK = number;
+/** Autoincrementing _id required for tables */
+type AUTOID = number;
 
-type TableNotify = 'rowInsert' | 'rowDelete' | 'rowUpdate';
-type RowNotify = 'rowUpdate' | 'rowDelete';
+type TableNotify = 'insert' | 'delete' | 'update';
+type RowNotify = 'update' | 'delete';
 /** Notify is a union of the available notification events that can be subscribed to
- * - rowInsert
- * - rowDelete
- * - rowUpdate
+ * - insert
+ * - delete
+ * - update
  */
 type Notify = TableNotify | RowNotify;
 
@@ -56,13 +56,13 @@ type SingleSubscribe<T> = (v: T) => void;
 
 type AllowedPrimitives = string | number | Date | boolean | null;
 
-// UserRow is what the user provides (without the _pk property)
-type UserRow = { [index: string]: AllowedPrimitives }; // & { _pk?: never}; TODO: ensure user does not try to pass-in _pk property during initialization
+// UserRow is what the user provides (without the _id property)
+type UserRow = { [index: string]: AllowedPrimitives }; // & { _id?: never}; TODO: ensure user does not try to pass-in _id property during initialization
 
 export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 
-// TableRow is the UserRow decorated with the _pk property
-export type TableRow<T> = { [K in keyof T]: T[K] } & { _pk: number };
+// TableRow is the UserRow decorated with the _id property
+export type TableRow<T> = { [K in keyof T]: T[K] } & { _id: number };
 
 export interface Store {
     tables?: {
@@ -102,45 +102,47 @@ export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed du
 
 export type Table<T extends UserRow> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useId(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
-    useRow(_pk: PK, notify?: RowNotify[]): TableRow<T> | undefined;
-    insertRow(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
-    insertRows(rows: T[], batchNotify?: boolean): TableRow<T>[];
+    insertOne(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
+    insertMany(rows: T[], batchNotify?: boolean): TableRow<T>[];
     onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterInsert(fn: (row: TableRow<T>) => void): void;
-    deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean; // delete the first row that matches the PK, the property values provided, or the function
-    deleteRows(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
+    deleteById(_id: AUTOID): boolean;
+    deleteOne(where: Partial<T> | ((row: TableRow<T>) => boolean)): boolean; // delete the first row that matches the property values provided, or the function
+    deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
-    updateRow(_pk: PK, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
-    updateRows(
+    updateOneById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
+    updateMany(
         setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
         where?: Partial<T> | ((row: TableRow<T>) => boolean),
         batchNotify?: boolean,
     ): TableRow<T>[];
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
-    getRow(where: PK | Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined; // returns the first row that matches
-    getRows(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[]; // returns all rows that match
-    getRowCount(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
-    getColumnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
+    findById(_id: AUTOID): TableRow<T> | undefined;
+    findOne(where: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T> | undefined; // returns the first row that matches
+    find(where?: Partial<T> | ((v: TableRow<T>) => boolean)): TableRow<T>[]; // returns all rows that match
+    count(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
+    columnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
     clear(resetIndex?: boolean): void; // clear the tables contents
 };
 
 // _checkTable throws an error if the table is not instantiated correctly.
-// if instantiated correctly, it returns the number of initialized elements for seeding the autoPK for the table
+// if instantiated correctly, it returns the number of initialized elements for seeding the autoAUTOID for the table
 function _checkTable<T>(t: DefinedTable<T>): number {
-    // check that the user provided at least one column that is not the '_pk'
-    if (Object.keys(t).filter((d) => d !== '_pk').length === 0) {
+    // check that the user provided at least one column that is not the '_id'
+    if (Object.keys(t).filter((d) => d !== '_id').length === 0) {
         throw newError(`invalid initial arguments when creating table; cannot create an empty table`);
     }
 
     // check if user provided initial values and if each array has the same number
     let nInitialLength = -1;
     for (const k in t) {
-        // _pk is automtically reset, so we can ignore it here
-        if (k === '_pk') {
+        // _id is automtically reset, so we can ignore it here
+        if (k === '_id') {
             continue;
         }
         if (nInitialLength === -1) {
@@ -166,18 +168,18 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         }, {} as DefinedTable<T>);
     }
     const nInitialLength = _checkTable(t);
-    // setup the primary keys (accounting for any initial values)
-    let autoPK: PK = 0;
-    const initialPK: PK[] = [];
+    // setup the autoID (accounting for any initial values)
+    let autoID: AUTOID = 0;
+    const initialAUTOID: AUTOID[] = [];
     for (let i = 0; i < nInitialLength; i++) {
-        initialPK[i] = ++autoPK;
+        initialAUTOID[i] = ++autoID;
     }
-    const initialValues = { ...t, _pk: initialPK } as DefinedTable<TableRow<T>>; // put PK last to override it if the user passes it in erroneously
-    const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_pk" so the user does not need to
+    const initialValues = { ...t, _id: initialAUTOID } as DefinedTable<TableRow<T>>; // put AUTOID last to override it if the user passes it in erroneously
+    const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_id" so the user does not need to
     const originalColumnNames = Object.keys(t); // the user provided column names
-    const columnNames: (keyof T)[] = Object.keys(initialValues); // the user provided column names + "_pk"
+    const columnNames: (keyof T)[] = Object.keys(initialValues); // the user provided column names + "_id"
     const tableSubscribers: Subscribe<TableRow<T>[]>[] = [];
-    const rowSubscribers: Record<PK, Subscribe<TableRow<T> | undefined>[]> = {};
+    const rowSubscribers: Record<AUTOID, Subscribe<TableRow<T> | undefined>[]> = {};
     let triggerBeforeInsert: undefined | ((v: TableRow<T>) => TableRow<T> | void | boolean) = undefined;
     let triggerAfterInsert: undefined | ((v: TableRow<T>) => void) = undefined;
     let triggerBeforeDelete: undefined | ((v: TableRow<T>) => boolean | void) = undefined;
@@ -187,7 +189,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
 
     const _getAllRows = (): TableRow<T>[] => {
         const entries: TableRow<T>[] = [];
-        for (let i = 0, numValues = table['_pk'].length; i < numValues; i++) {
+        for (let i = 0, numValues = table['_id'].length; i < numValues; i++) {
             const entry = {} as TableRow<T>;
             for (let j = 0, numArrays = columnNames.length; j < numArrays; j++) {
                 entry[columnNames[j]] = table[columnNames[j]][i];
@@ -198,7 +200,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
     };
 
     const _getRowCount = (): number => {
-        return table['_pk'].length;
+        return table['_id'].length;
     };
 
     /**
@@ -219,17 +221,17 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
     }
 
     /**
-     * Convenience function for returning a table row based on the provided primary key
+     * Convenience function for returning a table row based on the provided autoID
      * The function will return undefined if the provided index is out of range (e.g., greater than the number of rows in the table)
-     * @param pk
+     * @param AUTOID
      * @returns TableRow | undefined
      */
-    function _getRowByPK(pk: PK): TableRow<T> | undefined {
-        if (pk < 0) {
+    function _getRowByAUTOID(AUTOID: AUTOID): TableRow<T> | undefined {
+        if (AUTOID < 0) {
             return undefined;
         }
         for (let i = 0, len = _getRowCount(); i < len; i++) {
-            if (table._pk[i] === pk) {
+            if (table._id[i] === AUTOID) {
                 return _getRowByIndex(i);
             }
         }
@@ -273,11 +275,11 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         }
     };
 
-    const notifyRowSubscribers = (ne: RowNotify, pk: PK) => {
-        if (rowSubscribers[pk] && rowSubscribers[pk].length > 0) {
-            const subs = rowSubscribers[pk].filter((s) => s.notify.length === 0 || s.notify.includes(ne));
+    const notifyRowSubscribers = (ne: RowNotify, AUTOID: AUTOID) => {
+        if (rowSubscribers[AUTOID] && rowSubscribers[AUTOID].length > 0) {
+            const subs = rowSubscribers[AUTOID].filter((s) => s.notify.length === 0 || s.notify.includes(ne));
             if (subs.length > 0) {
-                const row = _getRowByPK(pk);
+                const row = _getRowByAUTOID(AUTOID);
                 for (let i = 0, len = subs.length; i < len; i++) {
                     subs[i].fn(row);
                 }
@@ -285,30 +287,30 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         }
     };
 
-    const registerRow = (pk: PK, fn: (v: TableRow<T>) => void, notify: RowNotify[]) => {
-        if (!rowSubscribers[pk]) {
-            rowSubscribers[pk] = [];
+    const registerRow = (AUTOID: AUTOID, fn: (v: TableRow<T>) => void, notify: RowNotify[]) => {
+        if (!rowSubscribers[AUTOID]) {
+            rowSubscribers[AUTOID] = [];
         }
 
-        rowSubscribers[pk].push({
+        rowSubscribers[AUTOID].push({
             notify,
             fn,
         });
     };
 
-    const unregisterRow = (pk: PK, fn: (v: TableRow<T>) => void) => {
-        if (rowSubscribers[pk]) {
-            rowSubscribers[pk] = rowSubscribers[pk].filter((d) => d.fn !== fn);
-            if (rowSubscribers[pk].length === 0) {
-                delete rowSubscribers[pk]; // remove the property entirely if there are no listeners
+    const unregisterRow = (AUTOID: AUTOID, fn: (v: TableRow<T>) => void) => {
+        if (rowSubscribers[AUTOID]) {
+            rowSubscribers[AUTOID] = rowSubscribers[AUTOID].filter((d) => d.fn !== fn);
+            if (rowSubscribers[AUTOID].length === 0) {
+                delete rowSubscribers[AUTOID]; // remove the property entirely if there are no listeners
             }
         }
     };
 
     const _insertRow = (newRow: T): TableRow<T> | undefined => {
-        const newPK = autoPK + 1;
+        const newAUTOID = autoID + 1;
         let entry = {
-            _pk: newPK,
+            _id: newAUTOID,
             ...newRow,
         } as TableRow<T>;
 
@@ -320,13 +322,13 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }
             // if the user returns a type (potentially with changes), then we reassign the values to entry
             if (typeof v === 'object') {
-                entry._pk = newPK; // protect against the user changing the intended primary key
+                entry._id = newAUTOID; // protect against the user changing the intended autoID
                 if (typeof v === 'object') {
                     entry = v;
                 }
             }
         }
-        ++autoPK; // commit change to primary key
+        ++autoID; // commit change to autoID
         for (const k in entry) {
             table[k].push(entry[k]);
         }
@@ -349,13 +351,13 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             const entry = _insertRow(newRows[i]);
             if (entry) {
                 if (!batchNotify) {
-                    notifyTableSubscribers('rowInsert');
+                    notifyTableSubscribers('insert');
                 }
                 entries.push(entry);
             }
         }
         if (batchNotify) {
-            notifyTableSubscribers('rowInsert');
+            notifyTableSubscribers('insert');
         }
         return entries;
     };
@@ -385,7 +387,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         const merged = {
             ...cv,
             ...nv,
-            _pk: cv._pk, // extra precaution
+            _id: cv._id, // extra precaution
         };
 
         let updateValue = merged;
@@ -400,7 +402,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         }
 
         for (const k in updateValue) {
-            if (table[k] !== undefined && k !== '_pk') {
+            if (table[k] !== undefined && k !== '_id') {
                 const v = updateValue[k];
                 if (v !== undefined) {
                     table[k][idx] = v;
@@ -418,9 +420,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
     const _validateRow = (row: T): boolean => {
         const rowKeys = new Set(Object.keys(row));
         const colKeys = new Set(originalColumnNames);
-        if (rowKeys.has('_pk')) {
-            logWarning(`attempting to pass value for "_pk" when inserting rows; the "_pk" property is handled automatically and will be ignored when received`);
-            rowKeys.delete('_pk');
+        if (rowKeys.has('_id')) {
+            logWarning(`attempting to pass value for "_id" when inserting rows; the "_id" property is handled automatically and will be ignored when received`);
+            rowKeys.delete('_id');
         }
 
         for (const elem of rowKeys) {
@@ -570,7 +572,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                             if (ops.refreshMode === 'replace') {
                                 _clearTable();
                                 if (ops.resetIndex) {
-                                    autoPK = 0;
+                                    autoID = 0;
                                 }
                             }
                             _insertRows(d, true); // validates all rows before insertion
@@ -616,41 +618,59 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }, [t]);
             return { data, status, error };
         },
-        useRow(pk: PK, notify: RowNotify[] = []): TableRow<T> | undefined {
-            const [v, setV] = useState<TableRow<T> | undefined>(() => _getRowByPK(pk)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        useId(AUTOID: AUTOID, notify: RowNotify[] = []): TableRow<T> | undefined {
+            const [v, setV] = useState<TableRow<T> | undefined>(() => _getRowByAUTOID(AUTOID)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid firing useEffect when the notify object reference changes
             const notifyList = useRef(Array.from(new Set(notify)));
             useEffect(() => {
                 const subscribe = (nv: TableRow<T> | undefined) => {
                     setV(nv);
                 };
-                registerRow(pk, subscribe, notifyList.current);
-                setV(_getRowByPK(pk));
+                registerRow(AUTOID, subscribe, notifyList.current);
+                setV(_getRowByAUTOID(AUTOID));
                 // unregister when component unmounts;
                 return () => {
-                    unregisterRow(pk, subscribe);
+                    unregisterRow(AUTOID, subscribe);
                 };
-            }, [t, pk]);
+            }, [t, AUTOID]);
             return v;
         },
-        insertRow(newRow: T): TableRow<T> | undefined {
+        insertOne(newRow: T): TableRow<T> | undefined {
             _validateRow(newRow);
             const entry = _insertRow(newRow);
             if (entry) {
-                notifyTableSubscribers('rowInsert');
+                notifyTableSubscribers('insert');
             }
             return entry;
         },
-        insertRows(newRows: T[], batchNotify = true): TableRow<T>[] {
+        insertMany(newRows: T[], batchNotify = true): TableRow<T>[] {
             return _insertRows(newRows, batchNotify);
         },
-        deleteRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): boolean {
-            let i = table._pk.length;
+        deleteById(_id: AUTOID): boolean {
+            let i = table._id.length;
+            while(i--) {
+                if (table._id[i] === _id) {
+                    const entry = _getRowByIndex(i);
+                    if (entry) {
+                        const deleted = _deleteRow(i, entry);
+                        if (deleted) {
+                            // notify subscribers of changes to row and table
+                            notifyRowSubscribers('delete', entry._id);
+                            notifyTableSubscribers('delete');
+                        }
+                        return deleted;
+                    }
+                }
+            }
+            return false;
+        },
+        deleteOne(where: AUTOID | Partial<T> | ((row: TableRow<T>) => boolean)): boolean {
+            let i = table._id.length;
             while (i--) {
                 let remove = false;
                 switch (typeof where) {
                     case 'number': {
-                        if (table._pk[i] === where) {
+                        if (table._id[i] === where) {
                             remove = true;
                         }
                         break;
@@ -689,8 +709,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         const deleted = _deleteRow(i, entry);
                         if (deleted) {
                             // notify subscribers of changes to row and table
-                            notifyRowSubscribers('rowDelete', entry._pk);
-                            notifyTableSubscribers('rowDelete');
+                            notifyRowSubscribers('delete', entry._id);
+                            notifyTableSubscribers('delete');
                         }
                         return deleted;
                     }
@@ -699,8 +719,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }
             return false;
         },
-        deleteRows(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify = true): number {
-            let i = table._pk.length;
+        deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify = true): number {
+            let i = table._id.length;
             let numRemoved = 0;
             while (i--) {
                 let remove = false;
@@ -711,7 +731,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         break;
                     }
                     case 'number': {
-                        if (table._pk[i] === where) {
+                        if (table._id[i] === where) {
                             remove = true;
                         }
                         break;
@@ -755,9 +775,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         const deleted = _deleteRow(i, entry);
                         if (deleted) {
                             // notify subscribers of changes to row and table
-                            notifyRowSubscribers('rowDelete', entry._pk);
+                            notifyRowSubscribers('delete', entry._id);
                             if (!batchNotify) {
-                                notifyTableSubscribers('rowDelete');
+                                notifyTableSubscribers('delete');
                             }
                             numRemoved++;
                         }
@@ -765,15 +785,15 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 }
             }
             if (batchNotify) {
-                notifyTableSubscribers('rowDelete');
+                notifyTableSubscribers('delete');
             }
             return numRemoved;
         },
-        updateRow(pk: PK, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined {
+        updateOneById(AUTOID: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined {
             let idx = -1;
-            // find the idx where the pk exists in this table
-            for (let i = 0, len = table._pk.length; i < len; i++) {
-                if (table._pk[i] === pk) {
+            // find the idx where the AUTOID exists in this table
+            for (let i = 0, len = table._id.length; i < len; i++) {
+                if (table._id[i] === AUTOID) {
                     idx = i;
                     break;
                 }
@@ -801,20 +821,20 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                     }
                     if (updated) {
                         // notify subscribers of changes to row and table
-                        notifyRowSubscribers('rowUpdate', currentEntry._pk);
-                        notifyTableSubscribers('rowUpdate');
+                        notifyRowSubscribers('update', currentEntry._id);
+                        notifyTableSubscribers('update');
                     }
                     return updated;
                 }
             }
             return undefined;
         },
-        updateRows(
+        updateMany(
             setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
             where?: Partial<T> | ((row: TableRow<T>) => boolean),
             batch = true,
         ): TableRow<T>[] {
-            let idx = table._pk.length;
+            let idx = table._id.length;
             const entries: TableRow<T>[] = [];
             while (idx--) {
                 let update = false;
@@ -874,9 +894,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                         }
 
                         if (updated) {
-                            notifyRowSubscribers('rowUpdate', currentEntry._pk);
+                            notifyRowSubscribers('update', currentEntry._id);
                             if (!batch) {
-                                notifyTableSubscribers('rowUpdate');
+                                notifyTableSubscribers('update');
                             }
                             entries.push(updated);
                         }
@@ -884,21 +904,21 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 }
             }
             if (batch) {
-                notifyTableSubscribers('rowUpdate');
+                notifyTableSubscribers('update');
             }
             return entries;
         },
-        getRows(where?: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T>[] {
+        find(where?: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T>[] {
             return _getRows(where);
         },
-        getRow(where: PK | Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T> | undefined {
+        findById(_id: AUTOID): TableRow<T> | undefined {
+            return _getRowByAUTOID(_id);
+        },
+        findOne(where: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T> | undefined {
             const numRows = _getRowCount();
             if (numRows > 0) {
                 let idx = -1;
                 switch (typeof where) {
-                    case 'number': {
-                        return _getRowByPK(where);
-                    }
                     case 'function': {
                         // loop through the rows until we find a matching index, returns the first match if any
                         const entry = {} as TableRow<T>;
@@ -954,7 +974,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 }
             }
         },
-        getRowCount(where?: Partial<T> | ((row: TableRow<T>) => boolean)): number {
+        count(where?: Partial<T> | ((row: TableRow<T>) => boolean)): number {
             switch (typeof where) {
                 case 'object': {
                     // make sure the requested columns exist in the table; if they don't all exist, return undefined
@@ -996,9 +1016,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                     return n;
                 }
             }
-            return table._pk.length;
+            return table._id.length;
         },
-        getColumnNames(): (keyof T)[] {
+        columnNames(): (keyof T)[] {
             return columnNames.sort();
         },
         onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | boolean | void) {
@@ -1024,23 +1044,23 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             rows = n == -1 ? rows : rows.slice(0, n);
 
             if (rows.length === 0) {
-                const cols = this.getColumnNames();
+                const cols = this.columnNames();
                 console.log('No rows found');
                 console.table(Object.fromEntries(cols.map((d) => [d, []]))); // add an empty array to each column name
                 return;
             }
 
-            // transform the rows so the index is the _pk instead of an arbitrary number
-            const transformed = rows.reduce((acc, { _pk, ...x }) => {
-                acc[_pk] = x;
+            // transform the rows so the index is the _id instead of an arbitrary number
+            const transformed = rows.reduce((acc, { _id, ...x }) => {
+                acc[_id] = x;
                 return acc;
-            }, {} as { [index: number]: Omit<TableRow<T>, '_pk'> });
+            }, {} as { [index: number]: Omit<TableRow<T>, '_id'> });
             console.table(transformed);
         },
         clear(resetIndex = true) {
             _clearTable();
             if (resetIndex) {
-                autoPK = 0;
+                autoID = 0;
             }
         },
     };
