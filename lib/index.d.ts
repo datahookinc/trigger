@@ -99,7 +99,7 @@ export type Single<T> = {
     use(where?: (currentValue: T) => boolean | undefined): T;
     set(newValue: T): T;
     setFn(fn: (currentValue: T) => T): T;
-    onSet(fn: (newValue: T) => void): void;
+    onSet(fn: (previousValue: T, newValue: T) => void): void;
     onGet(fn: (value: T) => void): void;
     get(): T;
 };
