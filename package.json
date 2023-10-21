@@ -17,6 +17,7 @@
   "types": "lib/index.d.ts",
   "scripts": {
     "test": "jest --transformIgnorePatterns 'node_modules/(?!node-fetch)/' --rootDir=./tests --watch index.test.ts",
+    "test-silent": "jest --silent --transformIgnorePatterns 'node_modules/(?!node-fetch)/' --rootDir=./tests --watch index.test.ts",
     "test-build": "jest --silent --rootDir=./tests",
     "build": "tsc",
     "prepare": "npm run build",

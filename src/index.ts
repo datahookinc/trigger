@@ -1125,7 +1125,7 @@ export type Single<T> = {
     // Note: See this thread for more information about working around the call signature: https://github.com/microsoft/TypeScript/issues/37663 for why (newValue: T | ((currentValue: T) => T)): T won't work
     set(newValue: T): T;
     setFn(fn: (currentValue: T) => T): T;
-    onSet(fn: (newValue: T) => void): void;
+    onSet(fn: (previousValue: T, newValue: T) => void): void;
     onGet(fn: (value: T) => void): void;
     get(): T;
 };
@@ -1133,7 +1133,8 @@ export type Single<T> = {
 export function CreateSingle<T>(s: T): Single<T> {
     let single = s;
     let subscribers: SingleSubscribe<T>[] = [];
-    const triggers: { [Property in SingleTrigger]?: (v: T) => void } = {};
+    let triggerOnSet: undefined | ((pv: T, nv: T) => void) = undefined;
+    let triggerOnGet: undefined | ((v: T) => void) = undefined
 
     // Note: singles always fire when they are set
     const registerSingle = (fn: SingleSubscribe<T>) => {
@@ -1177,33 +1178,33 @@ export function CreateSingle<T>(s: T): Single<T> {
         },
         get(): T {
             // pass entry to trigger
-            if (triggers['onGet']) {
-                triggers['onGet'](single);
+            if (triggerOnGet) {
+                triggerOnGet(single);
             }
             return single;
         },
         set(newValue: T): T {
-            if (triggers['onSet']) {
-                triggers['onSet'](single);
+            if (triggerOnSet) {
+                triggerOnSet(single,  newValue);
             }
             notifySubscribers(newValue); // we pass the value to save extra function calls within notifySingleSubscribers
             single = newValue;
             return single;
         },
         setFn(fn: (currentValue: T) => T): T {
-            if (triggers['onSet']) {
-                triggers['onSet'](single);
-            }
             const v = fn(single);
             notifySubscribers(v); // we pass the value to save extra function calls within notifySingleSubscribers
+            if (triggerOnSet) {
+                triggerOnSet(single, v);
+            }
             single = v;
             return single;
         },
-        onSet(fn: (newValue: T) => void) {
-            triggers['onSet'] = fn;
+        onSet(fn: (previousValue: T, newValue: T) => void) {
+            triggerOnSet = fn;
         },
         onGet(fn: (value: T) => void) {
-            triggers['onGet'] = fn;
+            triggerOnGet = fn;
         },
     };
 }
