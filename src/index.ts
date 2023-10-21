@@ -43,7 +43,6 @@ type RowNotify = 'onUpdate' | 'onDelete';
  */
 type Notify = TableNotify | RowNotify;
 
-type SingleTrigger = 'onGet' | 'onSet';
 type QueueTrigger = 'onInsert' | 'onGet';
 
 type Subscribe<T> = {
@@ -1134,7 +1133,7 @@ export function CreateSingle<T>(s: T): Single<T> {
     let single = s;
     let subscribers: SingleSubscribe<T>[] = [];
     let triggerOnSet: undefined | ((pv: T, nv: T) => void) = undefined;
-    let triggerOnGet: undefined | ((v: T) => void) = undefined
+    let triggerOnGet: undefined | ((v: T) => void) = undefined;
 
     // Note: singles always fire when they are set
     const registerSingle = (fn: SingleSubscribe<T>) => {
@@ -1185,7 +1184,7 @@ export function CreateSingle<T>(s: T): Single<T> {
         },
         set(newValue: T): T {
             if (triggerOnSet) {
-                triggerOnSet(single,  newValue);
+                triggerOnSet(single, newValue);
             }
             notifySubscribers(newValue); // we pass the value to save extra function calls within notifySingleSubscribers
             single = newValue;
