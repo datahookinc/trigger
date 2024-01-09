@@ -1,9 +1,9 @@
 # Welcome to Trigger! <span><img width="28" height="28" src="lightning.png" alt="Lightning Bolt" /></span>
 
-![Build Size](https://img.shields.io/bundlephobia/minzip/@datahook/trigger?label=bundle%20size)
-![Version](https://img.shields.io/npm/v/@datahook/trigger)
-![Downloads](https://img.shields.io/npm/dt/@datahook/trigger)
-![License](https://img.shields.io/npm/l/@datahook/trigger)
+![npm bundle size](https://img.shields.io/bundlephobia/minzip/%40datahook%2Ftrigger)
+![NPM Version](https://img.shields.io/npm/v/%40datahook%2Ftrigger)
+![NPM Downloads](https://img.shields.io/npm/dt/%40datahook%2Ftrigger)
+![NPM License](https://img.shields.io/npm/l/%40datahook%2Ftrigger)
 
 Trigger is a data-oriented state management library developed for React and TypeScript. Trigger is lightweight, with 0 dependencies, and is designed to optimize the developer experience for working with data in your application.
 
