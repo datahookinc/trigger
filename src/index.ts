@@ -586,7 +586,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                             setStatus('error');
                             setData([]);
                             setError(String(err));
-                        });
+                        }).finally(() => isQuerying.current = false);
                 }
             }, ops.refreshOn);
 
