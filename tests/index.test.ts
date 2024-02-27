@@ -137,6 +137,18 @@ describe('Testing Tables', () => {
         expect(rows.length).toBe(3);
     });
 
+    it('should scan all table rows', () => {
+        let n = 0;
+        tables.customers.scan(() => { n++ });
+        expect(n).toBe(3);
+    });
+
+    it('should stop scanning early', () => {
+        let n = 0;
+        tables.customers.scan((row) => { n++; return row.firstName !== 'Sally' });
+        expect(n).toBe(2);
+    });
+
     it('should return undefined when row does not exist', () => {
         const { result } = renderHook(() => tables.customers.useById(-1));
         expect(result.current).toBeUndefined();
