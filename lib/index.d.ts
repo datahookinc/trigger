@@ -45,11 +45,22 @@ type TableRefreshOptions<T> = {
     onSuccess?(): void;
     filter?: (row: TableRow<T>) => boolean;
 };
+/**
+ * Default values:
+ * {
+ *  batchNotify: true,
+ *  render: true,
+ * }
+ */
+type UpdateManyOptions = {
+    batchNotify?: boolean;
+    render?: boolean;
+};
 export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
 export type Table<T extends UserRow> = {
-    use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    use(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): {
         data: TableRow<T>[];
@@ -65,8 +76,8 @@ export type Table<T extends UserRow> = {
     deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number;
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
-    updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
-    updateMany(setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), where?: Partial<T> | ((row: TableRow<T>) => boolean), batchNotify?: boolean): TableRow<T>[];
+    updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render?: boolean): TableRow<T> | undefined;
+    updateMany(setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, options?: UpdateManyOptions): TableRow<T>[];
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
     findById(_id: AUTOID): TableRow<T> | undefined;
@@ -76,6 +87,7 @@ export type Table<T extends UserRow> = {
     columnNames(): (keyof TableRow<T>)[];
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void;
     clear(resetIndex?: boolean): void;
+    scan(fn: (row: TableRow<T>, idx: number) => boolean | void): void;
 };
 export declare function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>>;
 export type QueueItem<T> = {
