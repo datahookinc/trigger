@@ -685,6 +685,52 @@ describe('Integration tests for useLoadData()', () => {
             expect(tables.cat.findById(2)?.name).toBe('NewCat');
         });
     });
+    it('should not render the table on update', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true }));
+
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(tables.cat.findById(2)?.name).toBe('Cleo');
+            expect(result.current.data.length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            tables.cat.updateById(2, { name: 'NewCat' }, false);
+        });
+
+        await waitFor(() => {
+            expect(result.current.data?.length).toBe(2);
+            expect(tables.cat.count()).toBe(2);
+            expect(result.current.data[1].name).toBe('Cleo');
+            expect(tables.cat.findById(2)?.name).toBe('NewCat');
+        });
+    });
+    it('should not render the table on update many', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true }));
+
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(tables.cat.findById(2)?.name).toBe('Cleo');
+            expect(result.current.data.length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            tables.cat.updateMany(row => {
+                return { name: `updated-${row.name}`}
+            }, null, { render: false });
+        });
+
+        await waitFor(() => {
+            expect(result.current.data?.length).toBe(2);
+            expect(tables.cat.count()).toBe(2);
+            expect(result.current.data[1].name).toBe('Cleo');
+            expect(tables.cat.findById(2)?.name).toBe('updated-Cleo');
+        });
+    });
     it('should return an error and extract the error message', async () => {
         const { result } = renderHook(() => tables.cat.useLoadData(async () => {
             throw new Error('This is my error');
