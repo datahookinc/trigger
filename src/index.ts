@@ -107,7 +107,7 @@ type TableRefreshOptions<T> = {
 type UpdateManyOptions = {
     batchNotify?: boolean;
     render?: boolean;
-}
+};
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
@@ -128,7 +128,7 @@ export type Table<T extends UserRow> = {
     updateMany(
         setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
         where?: Partial<T> | ((row: TableRow<T>) => boolean) | null,
-        options?: UpdateManyOptions
+        options?: UpdateManyOptions,
     ): TableRow<T>[];
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
@@ -234,12 +234,12 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
 
     /**
      * Convenience function for returning the column index for a column name. This is beneficial when looping over rows and filtering by a key:value pair
-     * @param k 
+     * @param k
      * @returns number | undefined
      */
-    function _getColumnIndexByName(k: string): number | undefined {
-        return columnNames.findIndex(cName => cName === k);
-    }
+    // function _getColumnIndexByName(k: string): number | undefined {
+    //     return columnNames.findIndex((cName) => cName === k);
+    // }
 
     /**
      * Convenience function for returning a table row based on the provided autoID
@@ -549,7 +549,9 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                                 // make sure the requested columns exist in the table; if they don't all exist, return an empty list
                                 for (const k of keys) {
                                     if (!columnNames.includes(k)) {
-                                        logWarning(`column '${k}' in where claused does not exist in table; use() will not return any rows until this is fixed`);
+                                        logWarning(
+                                            `column '${k}' in where claused does not exist in table; use() will not return any rows until this is fixed`,
+                                        );
                                         return [];
                                     }
                                 }
@@ -638,7 +640,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                             setStatus('error');
                             setData([]);
                             setError(String(err));
-                        }).finally(() => isQuerying.current = false);
+                        })
+                        .finally(() => (isQuerying.current = false));
                 }
             }, ops.refreshOn);
 
@@ -883,7 +886,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
         updateMany(
             setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
             where?: Partial<T> | ((row: TableRow<T>) => boolean) | null,
-            options?: UpdateManyOptions
+            options?: UpdateManyOptions,
         ): TableRow<T>[] {
             const ops: UpdateManyOptions = {
                 batchNotify: true,
