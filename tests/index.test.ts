@@ -131,7 +131,16 @@ describe('Testing Tables', () => {
         expect(result.current.length).toBe(3);
         expect(result.current.slice(-1)[0]._id).toBe(3);
     });
-
+    it('should filter the results with the function approach', () => {
+        const { result } = renderHook(() => tables.customers.use(row => row.firstName === 'Billy'));
+        expect(result.current.length).toBe(1);
+        expect(result.current[0].firstName === 'Billy');
+    });
+    it('should filter the results with the object approach', () => {
+        const { result } = renderHook(() => tables.customers.use({ firstName: 'Billy', lastName: 'McBilly' }));
+        expect(result.current.length).toBe(1);
+        expect(result.current[0].firstName === 'Billy');
+    });
     it('should return all table rows', () => {
         const rows = tables.customers.find();
         expect(rows.length).toBe(3);

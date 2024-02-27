@@ -112,7 +112,7 @@ type UpdateManyOptions = {
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
 export type Table<T extends UserRow> = {
-    use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    use(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
     insertOne(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
@@ -230,6 +230,15 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             return entry;
         }
         return undefined;
+    }
+
+    /**
+     * Convenience function for returning the column index for a column name. This is beneficial when looping over rows and filtering by a key:value pair
+     * @param k 
+     * @returns number | undefined
+     */
+    function _getColumnIndexByName(k: string): number | undefined {
+        return columnNames.findIndex(cName => cName === k);
     }
 
     /**
@@ -516,8 +525,8 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
     };
 
     return {
-        use(where: ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T>[] {
-            const [v, setV] = useState<TableRow<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        use(where: Partial<T> | ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T>[] {
+            const [v, setV] = useState<TableRow<T>[]>(() => _getRows(where)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
             const hasChanged = useRef((newValues: TableRow<T>[]) => tableHasChanged(v, newValues));
             const notifyList = useRef(Array.from(new Set(notify)));
@@ -527,10 +536,40 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             useEffect(() => {
                 const subscribe = (nv: TableRow<T>[]) => {
                     if (whereClause.current) {
-                        // compare to see if changes effect rows this component is hooking into
-                        const filtered = nv.filter(whereClause.current);
+                        let filtered: TableRow<T>[] = [];
+                        if (typeof whereClause.current === 'function') {
+                            // compare to see if changes effect rows this component is hooking into
+                            filtered = nv.filter(whereClause.current);
+                        } else {
+                            // Partial<T>
+                            const keys = Object.keys(whereClause.current);
+                            if (keys.length === 0) {
+                                filtered = []; // if no keys are provided, then no rows are returned
+                            } else {
+                                // make sure the requested columns exist in the table; if they don't all exist, return an empty list
+                                for (const k of keys) {
+                                    if (!columnNames.includes(k)) {
+                                        logWarning(`column '${k}' in where claused does not exist in table; use() will not return any rows until this is fixed`);
+                                        return [];
+                                    }
+                                }
+                                // loop through the rows
+                                for (let i = 0, len = nv.length; i < len; i++) {
+                                    let allMatch = true;
+                                    for (const k of keys) {
+                                        if (whereClause.current[k] !== nv[i][k]) {
+                                            allMatch = false;
+                                            break;
+                                        }
+                                    }
+                                    if (allMatch) {
+                                        filtered.push(nv[i]);
+                                    }
+                                }
+                            }
+                        }
                         if (hasChanged.current(filtered)) {
-                            setV(nv.filter(whereClause.current));
+                            setV(filtered);
                         }
                     } else {
                         setV(nv);
@@ -541,7 +580,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
 
                 // NOTE: Initialize here because of the delay between useState and useEffect which means
                 // changes could have been dispatched before this component was registered to listen for them
-                const currentTableValues = whereClause.current ? _getAllRows().filter(whereClause.current) : _getAllRows();
+                const currentTableValues = _getRows(whereClause.current);
                 setV(currentTableValues);
                 // unregister when component unmounts;
                 return () => {
@@ -1044,7 +1083,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             return table._id.length;
         },
         columnNames(): (keyof T)[] {
-            return columnNames.sort();
+            return columnNames;
         },
         onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | boolean | void) {
             triggerBeforeInsert = fn;
