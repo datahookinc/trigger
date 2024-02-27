@@ -139,14 +139,14 @@ describe('Testing Tables', () => {
 
     it('should scan all table rows', () => {
         let n = 0;
-        tables.customers.scan(() => { n++ });
-        expect(n).toBe(3);
+        tables.customers.scan((_, idx) => { n = idx });
+        expect(n).toBe(2);
     });
 
     it('should stop scanning early', () => {
         let n = 0;
-        tables.customers.scan((row) => { n++; return row.firstName !== 'Sally' });
-        expect(n).toBe(2);
+        tables.customers.scan((row, idx) => { n = idx; return row.firstName !== 'Sally' });
+        expect(n).toBe(1);
     });
 
     it('should return undefined when row does not exist', () => {

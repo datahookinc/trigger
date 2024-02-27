@@ -127,7 +127,7 @@ export type Table<T extends UserRow> = {
     columnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
     clear(resetIndex?: boolean): void; // clear the tables contents
-    scan(fn: (row: TableRow<T>) => boolean | void): void; // scan through the table's rows; returning "false" will stop the scan
+    scan(fn: (row: TableRow<T>, idx: number) => boolean | void): void; // scan through the table's rows; returning "false" will stop the scan
 };
 
 // _checkTable throws an error if the table is not instantiated correctly.
@@ -1064,13 +1064,13 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
                 autoID = 0;
             }
         },
-        scan(fn: (row: TableRow<T>) => boolean | undefined) {
+        scan(fn: (row: TableRow<T>, idx: number) => boolean | undefined) {
             for (let i = 0, len = _getRowCount(); i < len; i++) {
                 const currentEntry = _getRowByIndex(i);
                 if (!currentEntry) {
                     break;
                 }
-                if (fn(currentEntry) === false) {
+                if (fn(currentEntry, i) === false) {
                     break;
                 }
             }
