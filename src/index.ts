@@ -55,8 +55,44 @@ type SingleSubscribe<T> = (v: T) => void;
 
 type AllowedPrimitives = string | number | Date | boolean | null;
 
-// UserRow is what the user provides (without the _id property)
-type UserRow = { [index: string]: AllowedPrimitives }; // & { _id?: never}; TODO: ensure user does not try to pass-in _id property during initialization
+type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
+
+type IsUnion<T, B = T> = T extends B ? [B] extends [T] ? false : true : false;
+
+type ValidUnion<T> = IsUnion<T> extends true
+    ? IsUnion<Exclude<T, null>> extends true
+        ? "Type error: T must be a single type or a union with null only"
+        : T
+    : T
+
+type AllowedPrimitiveUnion<T> = 
+        ValidateAllowedPrimitives<T> extends true
+            ? T
+            : "Type error: Type must be an allowed primitive, an array, or a nested object"
+
+type AllowedObjectUnion<T> =
+    IsUnion<T> extends true
+        ? IsUnion<Exclude<T, null>> extends true
+            ? "Type error: T must be a single type or a union with null only"
+            : UserRow<T>
+        : UserRow<T>
+
+
+type AllowedArrayUnion<T> = 
+    IsUnion<T> extends true
+        ? IsUnion<Exclude<T, null>> extends true
+            ? "Type error: T must be a single type or a union with null only"
+            : T extends Array<T>
+                ? UserRow<T>
+                : never
+    : T extends Array<T>
+    ?   UserRow<T>
+    : never
+    
+
+type UserRow<T> = {
+    [P in keyof T]: AllowedPrimitiveUnion<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
+};
 
 export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 
@@ -65,7 +101,7 @@ export type TableRow<T> = { [K in keyof T]: T[K] } & { _id: number };
 
 export interface Store {
     tables?: {
-        [index: string]: Table<ReturnType<<T extends UserRow>() => T>>;
+        [index: string]: Table<ReturnType<<T extends UserRow<T>>() => T>>;
     };
     queues?: {
         [index: string]: Queue<unknown>;
@@ -99,7 +135,8 @@ type TableRefreshOptions<T> = {
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
-export type Table<T extends UserRow> = {
+export type Table<T extends UserRow<T>> = {
+// export type Table<T extends UserRow<T>> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
@@ -158,7 +195,7 @@ function _checkTable<T>(t: DefinedTable<T>): number {
 }
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>> {
+export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>> { // LEFT-OFF: it seems like all of this is coming back to TableRow...
     // turn t into an object if provided as an array of column names; will implicitly remove duplicate column names
     if (t instanceof Array) {
         t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => {
@@ -176,7 +213,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
     const initialValues = { ...t, _id: initialAUTOID } as DefinedTable<TableRow<T>>; // put AUTOID last to override it if the user passes it in erroneously
     const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_id" so the user does not need to
     const originalColumnNames = Object.keys(t); // the user provided column names
-    const columnNames: (keyof T)[] = Object.keys(initialValues); // the user provided column names + "_id"
+    const columnNames: ("_id" | keyof T)[] = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
     const tableSubscribers: Subscribe<TableRow<T>[]>[] = [];
     const rowSubscribers: Record<AUTOID, Subscribe<TableRow<T> | undefined>[]> = {};
     let triggerBeforeInsert: undefined | ((v: TableRow<T>) => TableRow<T> | void | boolean) = undefined;
@@ -1018,7 +1055,7 @@ export function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[])
             }
             return table._id.length;
         },
-        columnNames(): (keyof T)[] {
+        columnNames() {
             return columnNames.sort();
         },
         onBeforeInsert(fn: (row: TableRow<T>) => TableRow<T> | boolean | void) {

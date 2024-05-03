@@ -22,5 +22,5 @@
     },
     "include": [
       "src"
-    ],
+, "tests/type_playground.ts"    ],
 }

@@ -28,7 +28,8 @@ type Cat = {
 
 interface MyStore extends Store {
     tables: {
-        customers: Table<Customer>;
+        customers: Table<Customer>; // TableRow<Customer>' is not assignable to type 'TableRow<UserRow<any>>; 'TableRow<Customer>' is not assignable to type '{ [x: string]: UserRow<any>; Property 'customerID' is incompatible with index signature.
+        // Type 'number' is not assignable to type '"Type error: Type must be an allowed primitive, an array, or a nested object" | UserRow<any>
         orders: Table<Order>;
         company: Table<Company>;
         cat: Table<Cat>;
