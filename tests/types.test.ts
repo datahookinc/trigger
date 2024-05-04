@@ -1,3 +1,5 @@
+import { CreateTable, extract } from "../src";
+
 type AllowedPrimitives = string | number | Date | boolean | null;
 
 type IsUnion<T, B = T> = T extends B ? [B] extends [T] ? false : true : false;
@@ -144,30 +146,41 @@ type AllowedPrimitiveUnion2<T> =
             ? T
             : "Type error: Type must be an allowed primitive, an array, or a nested object"
 
-type AllowedObjectUnion<T> =
-    IsUnion<T> extends true
-        ? IsUnion<Exclude<T, null>> extends true
-            ? "Type error: T must be a single type or a union with null only"
-            : UserRow3<T>
-        : UserRow3<T>
+// type AllowedObjectUnion<T> =
+//     IsUnion<T> extends true
+//         ? IsUnion<Exclude<T, null>> extends true
+//             ? "Type error: T must be a single type or a union with null only"
+//             : UserRow3<T>
+//         : UserRow3<T>
 
 
-type AllowedArrayUnion<T> = 
-    IsUnion<T> extends true
-        ? IsUnion<Exclude<T, null>> extends true
-            ? "Type error: T must be a single type or a union with null only"
-            : T extends Array<T>
-                ? UserRow3<T>
-                : never
-    : T extends Array<T>
-    ?   UserRow3<T>
-    : never
+// type AllowedArrayUnion<T> = 
+//     IsUnion<T> extends true
+//         ? IsUnion<Exclude<T, null>> extends true
+//             ? "Type error: T must be a single type or a union with null only"
+//             : T extends Array<T>
+//                 ? UserRow3<T>
+//                 : never
+//     : T extends Array<T>
+//     ?   UserRow3<T>
+//     : never
 
+// type UserRow3<T> = {
+//     [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
+// };
+
+// LEFT-OFF: seeing if we can get it to work with one type check at a time
 type UserRow3<T> = {
-    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
+    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>>;
 };
 
+// Utility type to validate and return T if it matches UserRow<T>
+type ValidateUserRow<T> = T extends UserRow3<T> ? T : never;
+
+
 // type UserRow3<T> = { [index: string]: AllowedPrimitiveUnion<T> }
+// type UserRow = { [index: string]: AllowedPrimitives };
+
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 export type TableRow<T> = T & { _id: number } ;
@@ -236,11 +249,12 @@ export type Table<T extends UserRow3<T>> = {
         find(where?: Partial<T> | ((row: TableRow<T>) => boolean)): TableRow<T>[] 
     };
 
+
 type Customer3 = {
     customerID: number;
     firstName: string;
     lastName: string;
-    orders: string[];
+    // orders: string[];
 };
 
 type Customer4 = {
@@ -252,28 +266,53 @@ type Customer5 = {
 }
 
 // LEFT-OFF: a trial run for why the types aren't matching up here for me
-const table = CreateTable2<Customer3>(['customerID', 'firstName', 'lastName', 'orders']);
+const table = CreateTable2<Customer3>(['customerID', 'firstName', 'lastName']);
 const values = table.find();
 values
 // CreateTable2<Customer4>({ person: { name: 'Josh', age:38 } });
 
 
+// type UserTable<T> = Table<UserRow3<T>>; // LEFT-OFF: focus energy here: there is an odd problem happening with how it is being extended
+// type UserTable<T extends UserRow3<T>> = Table<T>; // LEFT-OFF: focus energy here: there is an odd problem happening with how it is being extended
+
+
+
 export interface Store {
     tables?: {
-        [index: string]: Table<ReturnType<<T extends UserRow3<T>>() => T>>;
+        // [index: string]: Table<ReturnType<<T extends UserRow3<T>>() => T>>;
+        [index: string]: Table<ReturnType<<T>() => UserRow3<T>>>; // LEFT-OFF: this one satisfies the Store interface, but not the extraction part...
+        // [index: string]: Table<UserRow3<unknown>>; 
+        // [index: string]: Table<UserRow3<T>>; 
+        // [index: string]: Table<ReturnType<<T>() => Table<UserRow3<T>>>>; 
+        // [index: string]: UserTable<ReturnType<<T extends UserRow3<T>>() => T>>;
+        // [index: string]: Table<ReturnType<<T>() => ValidateUserRow<T>>>; // LEFT-OFF: this one satisfies the Store interface, but not the extraction part...
+
+
+        
     };
 }
-
 
 // LEFT-OFF: this is where things are failing for me and I am not sure why...
 // LEFT-OFF: that's enough this week for this piece, just do what you can to get Noodlr working.
 interface MyStore extends Store {
     tables: {
-        customers: Table<Customer3>; // TableRow<Customer>' is not assignable to type 'TableRow<UserRow<any>>; 'TableRow<Customer>' is not assignable to type '{ [x: string]: UserRow<any>; Property 'customerID' is incompatible with index signature.
+        customers: Table<Customer3>; // Type '{ customers: Table<Customer3>; }' is not assignable to type '{ [index: string]: Table<UserRow3<any>>; }; TableRow<Customer>' is not assignable to type 'TableRow<UserRow<any>>; 'TableRow<Customer>' is not assignable to type '{ [x: string]: UserRow<any>; Property 'customerID' is incompatible with index signature.
+        
     };
 }
 
+const s: MyStore = {
+    tables: {
+        customers: CreateTable<Customer3>(['customerID', 'firstName', 'lastName']),
+    },
+};
 
+const { tables } = extract(s); // LEFT-OFF: somewhere around here, I have reduced UserRow3 to primitives only as a start, but it is not going well...
+
+// The problem appears to be in letting TypeScript know that Customer and UserRow<Customer> are the same thing...as well as the fact that it is returning UserRow<unknown> any...
+
+// the olduse row
+// type UserRow = { [index: string]: AllowedPrimitives };
 
 
 

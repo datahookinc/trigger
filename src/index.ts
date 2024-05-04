@@ -101,7 +101,8 @@ export type TableRow<T> = { [K in keyof T]: T[K] } & { _id: number };
 
 export interface Store {
     tables?: {
-        [index: string]: Table<ReturnType<<T extends UserRow<T>>() => T>>;
+        // [index: string]: Table<ReturnType<<T extends UserRow<T>>() => T>>;
+        [index: string]: Table<ReturnType<<T>() => UserRow<T>>>;
     };
     queues?: {
         [index: string]: Queue<unknown>;
