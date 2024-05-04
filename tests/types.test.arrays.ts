@@ -147,24 +147,24 @@ type AllowedPrimitiveUnion2<T> =
             : "Type error: Type must be an allowed primitive, an array, or a nested object"
 
 // UNCOMMENT WHEN READY
-// type AllowedObjectUnion<T> =
-//     IsUnion<T> extends true
-//         ? IsUnion<Exclude<T, null>> extends true
-//             ? "Type error: T must be a single type or a union with null only"
-//             : UserRow3<T>
-//         : UserRow3<T>
+type AllowedObjectUnion<T> =
+    IsUnion<T> extends true
+        ? IsUnion<Exclude<T, null>> extends true
+            ? "Type error: T must be a single type or a union with null only"
+            : UserRow3<T>
+        : UserRow3<T>
 
-// UNCOMMENT WHEN READY
-// type AllowedArrayUnion<T> = 
-//     IsUnion<T> extends true
-//         ? IsUnion<Exclude<T, null>> extends true
-//             ? "Type error: T must be a single type or a union with null only"
-//             : T extends Array<T>
-//                 ? UserRow3<T>
-//                 : never
-//     : T extends Array<T>
-//     ?   UserRow3<T>
-//     : never
+
+type AllowedArrayUnion<T> = 
+    IsUnion<T> extends true
+        ? IsUnion<Exclude<T, null>> extends true
+            ? "Type error: T must be a single type or a union with null only"
+            : T extends Array<T>
+                ? UserRow3<T>
+                : never
+    : T extends Array<T>
+    ?   UserRow3<T>
+    : never
 
 // type UserRow3<T> = {
 //     [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
@@ -172,7 +172,7 @@ type AllowedPrimitiveUnion2<T> =
 
 // LEFT-OFF: seeing if we can get it to work with one type check at a time
 type UserRow3<T> = {
-    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>>;
+    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
 };
 
 // Utility type to validate and return T if it matches UserRow<T>
@@ -181,9 +181,6 @@ type ValidateUserRow<T> = T extends UserRow3<T> ? T : never;
 
 // type UserRow3<T> = { [index: string]: AllowedPrimitiveUnion<T> }
 // type UserRow = { [index: string]: AllowedPrimitives };
-
-type NullableUnion<T> = T | null;
-type UserRow4 = { [index: string]: AllowedPrimitives | NullableUnion<AllowedPrimitives> |  AllowedPrimitives[] | NullableUnion<AllowedPrimitives>[] | UserRow4[] | NullableUnion<UserRow4>[] | UserRow4};
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 export type TableRow<T> = T & { _id: number } ;
@@ -212,7 +209,6 @@ function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): 
     const columnNames = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
 
     const _getRows = (where?: Partial<T> | ((v: TableRow<T>) => boolean) | null): TableRow<T>[] => { return [] }
-    
     return {
         print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n = 50) {
             let rows = _getRows(where);
@@ -256,7 +252,7 @@ type Customer3 = {
     customerID: number | null
     firstName: string;
     lastName: string;
-    // orders: string[];
+    orders: ({ name: string, age: number | null })[] | null;
 };
 
 type Customer4 = {
@@ -304,7 +300,7 @@ interface MyStore extends Store {
 
 const s: MyStore = {
     tables: {
-        customers: CreateTable2<Customer3>(['customerID', 'firstName', 'lastName']),
+        customers: CreateTable2<Customer3>(['customerID', 'firstName', 'lastName', 'orders']),
     },
 };
 
@@ -313,6 +309,10 @@ const s: MyStore = {
 // LEFT-OFF: what I want do is validate that it meets the constraints and then return the type as a regular UserRow
 
 const { tables } = extract(s); // LEFT-OFF: somewhere around here, I have reduced UserRow3 to primitives only as a start, but it is not going well...
+s.tables.customers.find()[0].orders?.slice(0)[0].name;
+
+// ^ LEFT-OFF: all of this is working, although the order matters for the array, which is problematic.
+// LEFT-OFF: re-writing index starting with just the primitives to see what happens, then moving to the next.
 
 
 // ExtractTables changes properties to readonly and removes properties that should not be exposed

@@ -1,195 +1,58 @@
-import { CreateTable } from "../src";
+import { extract } from "../src";
 
-type AllowedPrimitives = string | number | Date | boolean | null;
-
+type AllowedSingularPrimitives = string | number | Date | boolean | null;
 type IsUnion<T, B = T> = T extends B ? [B] extends [T] ? false : true : false;
 
-// type IsUnion<T> = (T extends T ? T[] : never) extends (T[] extends T ? never : T[]) ? false : true;
-// type IsUnion<T> = (T extends any ? (x: T) => 0 : never) extends (x: infer U) => 0 ? [T] extends [U] ? false : true : never;
+// type NonNullableAllowedPrimitives = Exclude<AllowedPrimitives, null>;
+
+// type NullableUnion<T> = T | null;
+// type NonUnion<T> = IsUnion<T> extends true ? never : T
+// type PermissableUnion<T extends AllowedSingularPrimitives> = IsUnion<T> extends true ? IsUnion<Exclude<T, null>> extends true ? "Type error: Only union with null is allowed" :T :T;
+
+
+// LEFT-OFF: abandon this approach, the unions are not specific enough for me.
+
+type PermissableUnion<T> = 
+    T extends string ? (null extends T ? string | null : string) :
+    T extends number ? (null extends T ? number | null : number) :
+    never;
+
+type PermissableTypes  = PermissableUnion<string | null> | PermissableUnion<number | null>
+
+// type WithNull<T> = T | null
+
+// type AllowedPrimitives = 
+//     | string 
+//     | number 
+//     | Date 
+//     | boolean 
+//     | WithNull<string> 
+//     | WithNull<number> 
+//     | WithNull<Date> 
+//     | WithNull<boolean>;
+
+
+    // type AllowedPrimitives = 
+    // | string 
+    // | number 
+    // | Date 
+    // | boolean 
+    // | WithNull<string> 
+    // | WithNull<number> 
+    // | WithNull<Date> 
+    // | WithNull<boolean>;
 
 
 
-// Basic #1 (freeze)
-// type ValidateUnion2<T> = IsUnion<T> extends true ? IsUnion<Exclude<T, null>> extends true ? "Type error: Only union with null is allowed" :T :T;
 
-
-// function something<T>(x: ValidateUnion2<T>) {
-//     console.log(something);
-// }
-
-// something<string | null>('hello');
-
-
-// Base #2 (freeze)
-// type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
-// type ValidateUnion2<T> =
-//     ValidateAllowedPrimitives<T> extends true
-//         ? IsUnion<T> extends true
-//             ? IsUnion<Exclude<T, null>> extends true 
-//                 ? "Type error: Only union with null is allowed"
-//                 :T 
-//             :T 
-//         : "Type error: Only allowed primitives are allowed";
-
-
-// function something<T>(x: ValidateUnion2<T>) {
-//     console.log(x);
-// }
-
-// something<string | null>('hello');
-
-// Base #3 (freeze)
-
-// type UserRow2<T> = {
-//     [P in keyof T]: ValidateUnion2<T[P]>;
-// };
-
-// type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
-// type ValidateUnion2<T> =
-//     ValidateAllowedPrimitives<T> extends true
-//         ? IsUnion<T> extends true
-//             ? IsUnion<Exclude<T, null>> extends true 
-//                 ? "Type error: Only union with null is allowed"
-//                 :T 
-//             :T 
-//         : T extends object
-//             ? UserRow2<T>
-//             : "Type error: Type must be an allowed primitive, or a nested object";
-
-
-// function something<T>(x: ValidateUnion2<T>) {
-//     console.log(x);
-// }
-
-// something<{ name: string, age: number | null }>({ name: 'josh', age: 38 });
-
-// Base #4 (freeze)
-
-// type IsAllowableUnion<T> = 
-//     IsUnion<Exclude<T, null>> extends true
-//         ? false
-//         : ValidateAllowedPrimitives<T>
-
-// type UserRow2<T> = {
-//     [P in keyof T]: ValidateUnion<T[P]>;
-// };
-
-// // type SingleTypeOrUnionWithNull<T> = IsUnion<Exclude<T, null>> extends true
-// //   ? "Type error: T must be a single type or a union with null only"
-// //   : T;
-
-// type IsArray<T> = T extends Array<any> ? true : false
-// type IsValidArray<T> = T extends Array<infer U> ? ValidateUnion<U> : false
-
-type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
-// type ValidateUnion2<T> =
-//     // is an allowed primitive
-//     ValidateAllowedPrimitives<T> extends true
-//         ? IsUnion<T> extends true
-//             // LEFT-OFF: I feel like this should be working, but it isn't
-//             ? IsAllowableUnion<T> extends true
-//                 ? T
-//                 : "Type error: Only union with null is allowed"
-//             : T 
-//         // LEFT-OFF: the order of these might make a difference
-//         // is nested object
-//         // : T extends object
-//         //     ? UserRow2<T>
-//         //     : T extends Array<ValidateUnion2<T>>
-//         //         ? T
-//         //         : "Type error: Type must be an allowed primitive, or a nested object";
-                
-//         // LEFT-OFF: how to validate the array type without getting into a crazy level of instantiation?
-//         // LEFT-OFF infer U pulls out the actual type
-//         // LEFT-OFF: can also use type IsArrayOf<T, U> = T extends Array<U> ? true : false; (where we extend ValidateUnion2)
-//         // : T extends Array<infer U>
-//         //     ? ValidateUnion2<U>
-//         //     : T extends object
-//         //         ? UserRow2<T>
-//         //         : "Type error: Type must be an allowed primitive, or a nested object";
-//         : IsArray<T> extends true
-//             ? IsValidArray<T> extends true
-//                 ? T
-//                 : "Type error: Array type is invalid"
-//             : T extends object
-//                 ? UserRow2<T>
-//                 : "Type error: Type must be an allowed primitive, or a nested object";
-
-
-// LEFT-OFF: I was starting with union (which is necessary), but this creates a lot of redundancy
-// LEFT-OFF: can I go back to a more purposeful way of doing this (e.g., type UserRow<T> = { [key: string]: AllowedPrimitiveUnion<T> | AllowedArrayUnion<T> | AllowedObjectUnion<T> } with each type purposefully typed instead of this recursive mess I am starting to get into?
-// LEFT-OFF: at least with the above approach I can test this one at a time.
-
-
-type ValidUnion<T> = IsUnion<T> extends true
-    ? IsUnion<Exclude<T, null>> extends true
-        ? "Type error: T must be a single type or a union with null only"
-        : T
-    : T
-
-// type AllowedPrimitiveUnion<T> = 
-//         ValidateAllowedPrimitives<T> extends true
-//         ?
-//             IsUnion<T> extends true
-//                 ?  IsUnion<Exclude<T, null>> extends true
-//                     ? "Type error: T must be a single type or a union with null only"
-//                     : ValidateAllowedPrimitives<T> extends true
-//                         ? T
-//                         : "Type error: T must be a single type or a union with null only"
-//                 : ValidateAllowedPrimitives<T> extends true 
-//                     ? T
-//                     : "Type error: Type must be an allowed primitive, an array, or a nested object"
-//         : never
-
-type AllowedPrimitiveUnion2<T> = 
-        ValidateAllowedPrimitives<T> extends true
-            ? T
-            : "Type error: Type must be an allowed primitive, an array, or a nested object"
-
-// UNCOMMENT WHEN READY
-// type AllowedObjectUnion<T> =
-//     IsUnion<T> extends true
-//         ? IsUnion<Exclude<T, null>> extends true
-//             ? "Type error: T must be a single type or a union with null only"
-//             : UserRow3<T>
-//         : UserRow3<T>
-
-// UNCOMMENT WHEN READY
-// type AllowedArrayUnion<T> = 
-//     IsUnion<T> extends true
-//         ? IsUnion<Exclude<T, null>> extends true
-//             ? "Type error: T must be a single type or a union with null only"
-//             : T extends Array<T>
-//                 ? UserRow3<T>
-//                 : never
-//     : T extends Array<T>
-//     ?   UserRow3<T>
-//     : never
-
-// type UserRow3<T> = {
-//     [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
-// };
-
-// LEFT-OFF: seeing if we can get it to work with one type check at a time
-type UserRow3<T> = {
-    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>>;
-};
-
-// Utility type to validate and return T if it matches UserRow<T>
-type ValidateUserRow<T> = T extends UserRow3<T> ? T : never;
-
-
-// type UserRow3<T> = { [index: string]: AllowedPrimitiveUnion<T> }
-// type UserRow = { [index: string]: AllowedPrimitives };
-
-type NullableUnion<T> = T | null;
-type UserRow4 = { [index: string]: AllowedPrimitives | NullableUnion<AllowedPrimitives> |  AllowedPrimitives[] | NullableUnion<AllowedPrimitives>[] | UserRow4[] | NullableUnion<UserRow4>[] | UserRow4};
+// type UserRow = { [index: string]: NonNullableAllowedPrimitives | NullableUnion<NonNullableAllowedPrimitives> |  AllowedPrimitives[] | NullableUnion<AllowedPrimitives>[] | UserRow[] | NullableUnion<UserRow>[] | UserRow}; // Note: this is 
+type UserRow = { [index: string]: PermissableTypes }; // Note: this is 
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 export type TableRow<T> = T & { _id: number } ;
 
 
-function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): Table<T> { // LEFT-OFF: not sure what to do here; it does not like it when I add the extra property
+function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>> { // LEFT-OFF: not sure what to do here; it does not like it when I add the extra property
 
     if (t instanceof Array) {
         t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => {
@@ -209,10 +72,10 @@ function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): 
     const initialValues = { ...t, _id: initialAUTOID } as DefinedTable<TableRow<T>>; // put AUTOID last to override it if the user passes it in erroneously
     const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_id" so the user does not need to
     const originalColumnNames = Object.keys(t); // the user provided column names (without "_id")
+    const x = Object.keys(initialValues);
     const columnNames = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
 
     const _getRows = (where?: Partial<T> | ((v: TableRow<T>) => boolean) | null): TableRow<T>[] => { return [] }
-    
     return {
         print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n = 50) {
             let rows = _getRows(where);
@@ -244,7 +107,7 @@ function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): 
     }
 }
 
-export type Table<T extends UserRow3<T>> = {
+export type Table<T extends UserRow> = {
     // export type Table<T extends UserRow<T>> = {
         print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
         clear(resetIndex?: boolean): void; // clear the tables contents
@@ -253,7 +116,7 @@ export type Table<T extends UserRow3<T>> = {
 
 
 type Customer3 = {
-    customerID: number | null
+    customerID: number | string;
     firstName: string;
     lastName: string;
     // orders: string[];
@@ -268,12 +131,13 @@ type Customer5 = {
 }
 
 // LEFT-OFF: a trial run for why the types aren't matching up here for me
-const table = CreateTable2<Customer3>(['customerID', 'firstName', 'lastName']);
+const table = CreateTable<Customer3>(['customerID', 'firstName', 'lastName']);
 const values = table.find();
+values
 // CreateTable2<Customer4>({ person: { name: 'Josh', age:38 } });
 
 
-// type UserTable<T> = Table<UserRow3<T>>; // LEFT-OFF: focus energy here: there is an odd problem happening with how it is being extended (it is being duplicated or something)
+// type UserTable<T> = Table<UserRow3<T>>; // LEFT-OFF: focus energy here: there is an odd problem happening with how it is being extended
 // type UserTable<T extends UserRow3<T>> = Table<T>; // LEFT-OFF: focus energy here: there is an odd problem happening with how it is being extended
 
 
@@ -281,7 +145,7 @@ const values = table.find();
 export interface Store {
     tables?: {
         // [index: string]: Table<ReturnType<<T extends UserRow3<T>>() => T>>;
-        [index: string]: Table<ReturnType<<T>() => UserRow3<T>>>; // LEFT-OFF: this one satisfies the Store interface, but not the extraction part...
+        [index: string]: Table<ReturnType<<T extends UserRow>() => T>>;
         // [index: string]: Table<UserRow3<unknown>>; 
         // [index: string]: Table<UserRow3<T>>; 
         // [index: string]: Table<ReturnType<<T>() => Table<UserRow3<T>>>>; 
@@ -304,40 +168,14 @@ interface MyStore extends Store {
 
 const s: MyStore = {
     tables: {
-        customers: CreateTable2<Customer3>(['customerID', 'firstName', 'lastName']),
+        customers: CreateTable<Customer3>(['customerID', 'firstName', 'lastName']),
     },
 };
 
 // LEFT-OFF: s from above actually works, it is the "s" being passed into extract that does not
 // LEFT-OFF: Table<TableRow<T>> also is still causing problems
-// LEFT-OFF: what I want do is validate that it meets the constraints and then return the type as a regular UserRow
 
 const { tables } = extract(s); // LEFT-OFF: somewhere around here, I have reduced UserRow3 to primitives only as a start, but it is not going well...
-
-
-// ExtractTables changes properties to readonly and removes properties that should not be exposed
-type ExtractTables<T> = {
-    readonly [K in keyof Omit<T, 'onInsert'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractTables<T[K]> : T[K]; // omit the trigger functions because the user shouldn't be exposed to those.
-};
-
-export function extractTables<T extends Store['tables']>(t: T): ExtractTables<T> {
-    return t;
-}
-
-
-type Extracted<T extends Store> = {
-    tables: ExtractTables<T['tables']>;
-};
-
-export function extract<T extends Store>(t: T): Extracted<T> {
-    const extracted = {} as Extracted<T>;
-    if (t.tables) {
-        extracted.tables = t.tables as ExtractTables<T['tables']>;
-    }
-
-    return extracted;
-}
-
 
 // The problem appears to be in letting TypeScript know that Customer and UserRow<Customer> are the same thing...as well as the fact that it is returning UserRow<unknown> any...
 
@@ -492,3 +330,5 @@ export function extract<T extends Store>(t: T): Extracted<T> {
 
 // CreateTable<customer1>({ name: 'josh', age: 38 });
 // CreateTable<customer2>({ name: 'josh', age: 38, other: true });
+
+

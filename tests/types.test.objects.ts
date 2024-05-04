@@ -147,12 +147,12 @@ type AllowedPrimitiveUnion2<T> =
             : "Type error: Type must be an allowed primitive, an array, or a nested object"
 
 // UNCOMMENT WHEN READY
-// type AllowedObjectUnion<T> =
-//     IsUnion<T> extends true
-//         ? IsUnion<Exclude<T, null>> extends true
-//             ? "Type error: T must be a single type or a union with null only"
-//             : UserRow3<T>
-//         : UserRow3<T>
+type AllowedObjectUnion<T> =
+    IsUnion<T> extends true
+        ? IsUnion<Exclude<T, null>> extends true
+            ? "Type error: T must be a single type or a union with null only"
+            : UserRow3<T>
+        : UserRow3<T>
 
 // UNCOMMENT WHEN READY
 // type AllowedArrayUnion<T> = 
@@ -172,7 +172,7 @@ type AllowedPrimitiveUnion2<T> =
 
 // LEFT-OFF: seeing if we can get it to work with one type check at a time
 type UserRow3<T> = {
-    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>>;
+    [P in keyof T]: AllowedPrimitiveUnion2<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>>;
 };
 
 // Utility type to validate and return T if it matches UserRow<T>
@@ -212,7 +212,6 @@ function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): 
     const columnNames = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
 
     const _getRows = (where?: Partial<T> | ((v: TableRow<T>) => boolean) | null): TableRow<T>[] => { return [] }
-    
     return {
         print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n = 50) {
             let rows = _getRows(where);
@@ -256,6 +255,7 @@ type Customer3 = {
     customerID: number | null
     firstName: string;
     lastName: string;
+    orders: { name: string, age: number }
     // orders: string[];
 };
 
@@ -268,7 +268,7 @@ type Customer5 = {
 }
 
 // LEFT-OFF: a trial run for why the types aren't matching up here for me
-const table = CreateTable2<Customer3>(['customerID', 'firstName', 'lastName']);
+const table = CreateTable2<Customer3>(['customerID', 'firstName', 'lastName', 'orders']);
 const values = table.find();
 // CreateTable2<Customer4>({ person: { name: 'Josh', age:38 } });
 
@@ -304,7 +304,7 @@ interface MyStore extends Store {
 
 const s: MyStore = {
     tables: {
-        customers: CreateTable2<Customer3>(['customerID', 'firstName', 'lastName']),
+        customers: CreateTable2<Customer3>(['customerID', 'firstName', 'lastName', 'orders']),
     },
 };
 
@@ -313,7 +313,7 @@ const s: MyStore = {
 // LEFT-OFF: what I want do is validate that it meets the constraints and then return the type as a regular UserRow
 
 const { tables } = extract(s); // LEFT-OFF: somewhere around here, I have reduced UserRow3 to primitives only as a start, but it is not going well...
-
+tables.customers.find()[0];
 
 // ExtractTables changes properties to readonly and removes properties that should not be exposed
 type ExtractTables<T> = {

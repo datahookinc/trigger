@@ -176,17 +176,15 @@ type UserRow3<T> = {
 };
 
 // Utility type to validate and return T if it matches UserRow<T>
-type ValidateUserRow<T> = T extends UserRow3<T> ? T : never;
 
 
 // type UserRow3<T> = { [index: string]: AllowedPrimitiveUnion<T> }
 // type UserRow = { [index: string]: AllowedPrimitives };
 
 type NullableUnion<T> = T | null;
-type UserRow4 = { [index: string]: AllowedPrimitives | NullableUnion<AllowedPrimitives> |  AllowedPrimitives[] | NullableUnion<AllowedPrimitives>[] | UserRow4[] | NullableUnion<UserRow4>[] | UserRow4};
 
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
-export type TableRow<T> = T & { _id: number } ;
+export type TableRow<T> = { [K in keyof T]: T[K] } & { _id: number };
 
 
 function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): Table<T> { // LEFT-OFF: not sure what to do here; it does not like it when I add the extra property
@@ -209,10 +207,30 @@ function CreateTable2<T extends UserRow3<T>>(t: DefinedTable<T> | (keyof T)[]): 
     const initialValues = { ...t, _id: initialAUTOID } as DefinedTable<TableRow<T>>; // put AUTOID last to override it if the user passes it in erroneously
     const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_id" so the user does not need to
     const originalColumnNames = Object.keys(t); // the user provided column names (without "_id")
-    const columnNames = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
+    // const columnNames: (keyof T)[] = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
+
+
+    // LEFT-OFF: HERE! Good progress ttoday.
+    // both of these work, the problem iss likely with _id from initialValues that is a number[] array (see if we can just use string[] and move on)
+    const columnNames = Object.keys(initialValues) as (keyof T)[]; // the user provided column names + "_id"
+    const columnNames = Object.keys(initialValues) as string[]; // the user provided column names + "_id"
+    // const columnNames: (keyof T)[] = Object.keys(initialValues); // the user provided column names + "_id"
 
     const _getRows = (where?: Partial<T> | ((v: TableRow<T>) => boolean) | null): TableRow<T>[] => { return [] }
-    
+
+    // LEFT-OFF: determining what is wrong with this? The types APPEAR to be working, but now there are issues with the internals.
+
+    const _getAllRows = (): TableRow<T>[] => {
+        const entries: TableRow<T>[] = [];
+        for (let i = 0, numValues = table['_id'].length; i < numValues; i++) {
+            const entry = {} as TableRow<T>;
+            for (let j = 0, numArrays = columnNames.length; j < numArrays; j++) {
+                entry[columnNames[j]] = table[columnNames[j]][i];
+            }
+            entries.push(entry);
+        }
+        return entries;
+    };
     return {
         print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n = 50) {
             let rows = _getRows(where);

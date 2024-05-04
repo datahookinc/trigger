@@ -196,7 +196,7 @@ function _checkTable<T>(t: DefinedTable<T>): number {
 }
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>> { // LEFT-OFF: it seems like all of this is coming back to TableRow...
+export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)[]): Table<T> { 
     // turn t into an object if provided as an array of column names; will implicitly remove duplicate column names
     if (t instanceof Array) {
         t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => {
