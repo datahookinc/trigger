@@ -307,6 +307,9 @@ const s: MyStore = {
     },
 };
 
+// LEFT-OFF: s from above actually works, it is the "s" being passed into extract that does not
+// LEFT-OFF: Table<TableRow<T>> also is still causing problems
+
 const { tables } = extract(s); // LEFT-OFF: somewhere around here, I have reduced UserRow3 to primitives only as a start, but it is not going well...
 
 // The problem appears to be in letting TypeScript know that Customer and UserRow<Customer> are the same thing...as well as the fact that it is returning UserRow<unknown> any...
