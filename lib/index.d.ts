@@ -138,4 +138,4 @@ type Extracted<T extends Store> = {
     queues: ExtractQueues<T['queues']>;
 };
 export declare function extract<T extends Store>(t: T): Extracted<T>;
-export { };
+export {};
