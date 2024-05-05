@@ -138,7 +138,7 @@ export interface Store {
  * }
  */
 type TableRefreshOptions<T> = {
-    refreshOn?: unknown[];
+    refreshOn?: unknown[]; // stubbed for now
     refreshMode?: 'replace' | 'append';
     resetIndex?: boolean;
     notify?: TableNotify[];
@@ -147,10 +147,22 @@ type TableRefreshOptions<T> = {
     filter?: (row: TableRow<T>) => boolean;
 };
 
+/**
+ * Default values:
+ * {
+ *  batchNotify: true,
+ *  render: true,
+ * }
+ */
+type UpdateManyOptions = {
+    batchNotify?: boolean;
+    render?: boolean;
+};
+
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
 export type Table<T extends UserRow<T>> = {
-    use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    use(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
     insertOne(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
@@ -162,11 +174,11 @@ export type Table<T extends UserRow<T>> = {
     deleteMany(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, batchNotify?: boolean): number; // returns the number of deleted rows, 0 if none where deleted. Deletes all rows if no argument is provided
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
-    updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined;
+    updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render?: boolean): TableRow<T> | undefined;
     updateMany(
         setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
-        where?: Partial<T> | ((row: TableRow<T>) => boolean),
-        batchNotify?: boolean,
+        where?: Partial<T> | ((row: TableRow<T>) => boolean) | null,
+        options?: UpdateManyOptions,
     ): TableRow<T>[];
     onBeforeUpdate(fn: (currentValue: TableRow<T>, newValue: TableRow<T>) => TableRow<T> | void | boolean): void;
     onAfterUpdate(fn: (previousValue: TableRow<T>, newValue: TableRow<T>) => void): void;
@@ -177,6 +189,7 @@ export type Table<T extends UserRow<T>> = {
     columnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
     clear(resetIndex?: boolean): void; // clear the tables contents
+    scan(fn: (row: TableRow<T>, idx: number) => boolean | void): void; // scan through the table's rows; returning "false" will stop the scan
 };
 
 // _checkTable throws an error if the table is not instantiated correctly.
@@ -312,6 +325,15 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
         }
         return undefined;
     }
+
+    /**
+     * Convenience function for returning the column index for a column name. This is beneficial when looping over rows and filtering by a key:value pair
+     * @param k
+     * @returns number | undefined
+     */
+    // function _getColumnIndexByName(k: string): number | undefined {
+    //     return columnNames.findIndex((cName) => cName === k);
+    // }
 
     /**
      * Convenience function for returning a table row based on the provided autoID
@@ -597,8 +619,8 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
     };
 
     return {
-        use(where: ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T>[] {
-            const [v, setV] = useState<TableRow<T>[]>(() => (where ? _getAllRows().filter(where) : _getAllRows())); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+        use(where: Partial<T> | ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T>[] {
+            const [v, setV] = useState<TableRow<T>[]>(() => _getRows(where)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
             // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
             const hasChanged = useRef((newValues: TableRow<T>[]) => tableHasChanged(v, newValues));
             const notifyList = useRef(Array.from(new Set(notify)));
@@ -608,10 +630,42 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             useEffect(() => {
                 const subscribe = (nv: TableRow<T>[]) => {
                     if (whereClause.current) {
-                        // compare to see if changes effect rows this component is hooking into
-                        const filtered = nv.filter(whereClause.current);
+                        let filtered: TableRow<T>[] = [];
+                        if (typeof whereClause.current === 'function') {
+                            // compare to see if changes effect rows this component is hooking into
+                            filtered = nv.filter(whereClause.current);
+                        } else {
+                            // Partial<T>
+                            const keys = Object.keys(whereClause.current) as (keyof T)[];
+                            if (keys.length === 0) {
+                                filtered = []; // if no keys are provided, then no rows are returned
+                            } else {
+                                // make sure the requested columns exist in the table; if they don't all exist, return an empty list
+                                for (const k of keys) {
+                                    if (!columnNames.includes(k)) {
+                                        logWarning(
+                                            `column '${String(k)}' in where claused does not exist in table; use() will not return any rows until this is fixed`,
+                                        );
+                                        return [];
+                                    }
+                                }
+                                // loop through the rows
+                                for (let i = 0, len = nv.length; i < len; i++) {
+                                    let allMatch = true;
+                                    for (const k of keys) {
+                                        if (whereClause.current[k] !== nv[i][k]) {
+                                            allMatch = false;
+                                            break;
+                                        }
+                                    }
+                                    if (allMatch) {
+                                        filtered.push(nv[i]);
+                                    }
+                                }
+                            }
+                        }
                         if (hasChanged.current(filtered)) {
-                            setV(nv.filter(whereClause.current));
+                            setV(filtered);
                         }
                     } else {
                         setV(nv);
@@ -622,7 +676,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
 
                 // NOTE: Initialize here because of the delay between useState and useEffect which means
                 // changes could have been dispatched before this component was registered to listen for them
-                const currentTableValues = whereClause.current ? _getAllRows().filter(whereClause.current) : _getAllRows();
+                const currentTableValues = _getRows(whereClause.current);
                 setV(currentTableValues);
                 // unregister when component unmounts;
                 return () => {
@@ -883,7 +937,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             }
             return numRemoved;
         },
-        updateById(AUTOID: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>)): TableRow<T> | undefined {
+        updateById(AUTOID: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render = true): TableRow<T> | undefined {
             let idx = -1;
             // find the idx where the AUTOID exists in this table
             for (let i = 0, len = table._id.length; i < len; i++) {
@@ -913,7 +967,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                             break;
                         }
                     }
-                    if (updated) {
+                    if (updated && render) {
                         // notify subscribers of changes to row and table
                         notifyRowSubscribers('onUpdate', currentEntry._id);
                         notifyTableSubscribers('onUpdate');
@@ -925,9 +979,15 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
         },
         updateMany(
             setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
-            where?: Partial<T> | ((row: TableRow<T>) => boolean),
-            batch = true,
+            where?: Partial<T> | ((row: TableRow<T>) => boolean) | null,
+            options?: UpdateManyOptions,
         ): TableRow<T>[] {
+            const ops: UpdateManyOptions = {
+                batchNotify: true,
+                render: true,
+                ...options,
+            };
+
             let idx = table._id.length;
             const entries: TableRow<T>[] = [];
             while (idx--) {
@@ -945,6 +1005,10 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                         break;
                     }
                     case 'object': {
+                        if (where === null) {
+                            update = true;
+                            break;
+                        }
                         const keys = Object.keys(where) as (keyof T)[];
                         // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
@@ -988,16 +1052,18 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                         }
 
                         if (updated) {
-                            notifyRowSubscribers('onUpdate', currentEntry._id);
-                            if (!batch) {
-                                notifyTableSubscribers('onUpdate');
+                            if (ops.render) {
+                                notifyRowSubscribers('onUpdate', currentEntry._id);
+                                if (!ops.batchNotify) {
+                                    notifyTableSubscribers('onUpdate');
+                                }
                             }
                             entries.push(updated);
                         }
                     }
                 }
             }
-            if (batch) {
+            if (ops.render && ops.batchNotify) {
                 notifyTableSubscribers('onUpdate');
             }
             return entries;
@@ -1160,6 +1226,17 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             _clearTable();
             if (resetIndex) {
                 autoID = 0;
+            }
+        },
+        scan(fn: (row: TableRow<T>, idx: number) => boolean | undefined) {
+            for (let i = 0, len = _getRowCount(); i < len; i++) {
+                const currentEntry = _getRowByIndex(i);
+                if (!currentEntry) {
+                    break;
+                }
+                if (fn(currentEntry, i) === false) {
+                    break;
+                }
             }
         },
     };

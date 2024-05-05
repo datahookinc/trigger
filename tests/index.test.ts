@@ -132,10 +132,31 @@ describe('Testing Tables', () => {
         expect(result.current.length).toBe(3);
         expect(result.current.slice(-1)[0]._id).toBe(3);
     });
-
+    it('should filter the results with the function approach', () => {
+        const { result } = renderHook(() => tables.customers.use(row => row.firstName === 'Billy'));
+        expect(result.current.length).toBe(1);
+        expect(result.current[0].firstName === 'Billy');
+    });
+    it('should filter the results with the object approach', () => {
+        const { result } = renderHook(() => tables.customers.use({ firstName: 'Billy', lastName: 'McBilly' }));
+        expect(result.current.length).toBe(1);
+        expect(result.current[0].firstName === 'Billy');
+    });
     it('should return all table rows', () => {
         const rows = tables.customers.find();
         expect(rows.length).toBe(3);
+    });
+
+    it('should scan all table rows', () => {
+        let n = 0;
+        tables.customers.scan((_, idx) => { n = idx });
+        expect(n).toBe(2);
+    });
+
+    it('should stop scanning early', () => {
+        let n = 0;
+        tables.customers.scan((row, idx) => { n = idx; return row.firstName !== 'Sally' });
+        expect(n).toBe(1);
     });
 
     it('should return undefined when row does not exist', () => {
@@ -672,6 +693,52 @@ describe('Integration tests for useLoadData()', () => {
             expect(result.current.data?.length).toBe(1);
             expect(tables.cat.count()).toBe(1);
             expect(tables.cat.findById(2)?.name).toBe('NewCat');
+        });
+    });
+    it('should not render the table on update', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true }));
+
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(tables.cat.findById(2)?.name).toBe('Cleo');
+            expect(result.current.data.length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            tables.cat.updateById(2, { name: 'NewCat' }, false);
+        });
+
+        await waitFor(() => {
+            expect(result.current.data?.length).toBe(2);
+            expect(tables.cat.count()).toBe(2);
+            expect(result.current.data[1].name).toBe('Cleo');
+            expect(tables.cat.findById(2)?.name).toBe('NewCat');
+        });
+    });
+    it('should not render the table on update many', async () => {
+        const { result } = renderHook(() => tables.cat.useLoadData(() => {
+            return fetch('http://localhost:3000/cats', { method: 'GET' }).then(res => res.json() as Promise<Cat[]>)
+        }, { resetIndex: true }));
+
+        await waitFor(() => {
+            expect(result.current.status).toBe('success');
+            expect(tables.cat.findById(2)?.name).toBe('Cleo');
+            expect(result.current.data.length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+            tables.cat.updateMany(row => {
+                return { name: `updated-${row.name}`}
+            }, null, { render: false });
+        });
+
+        await waitFor(() => {
+            expect(result.current.data?.length).toBe(2);
+            expect(tables.cat.count()).toBe(2);
+            expect(result.current.data[1].name).toBe('Cleo');
+            expect(tables.cat.findById(2)?.name).toBe('updated-Cleo');
         });
     });
     it('should return an error and extract the error message', async () => {
