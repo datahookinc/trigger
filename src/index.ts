@@ -67,21 +67,34 @@ type IsUnion<T, B = T> = T extends B ? ([B] extends [T] ? false : true) : false;
 //                 ? T
 //                 : "Type error: Type must be an allowed primitive, an array, or a nested object"
 
+
+// type AllowedType<T> = T extends object
+//     ? T extends NewableFunction | CallableFunction | Map<any, any> | Set<any> | WeakMap<object, any> | WeakSet<object>
+//         ? 'Type error: Function, Map, Set, WeakMap, and WeakSet types are not allowed'
+//         : // Note: I believe the next two lines are correct; however, it will not work, which is why I fall back to just passing the array back into UserRow
+//           // : T extends Array<infer U>
+//           //     ? AllowedUnion<U>
+//           T extends Array<T>
+//           ? UserRow<T>
+//           : T extends Date
+//             ? T
+//             : UserRow<T>
+//     : ValidateAllowedPrimitives<T> extends true
+//       ? T
+//       : 'Type error: Type must be an allowed primitive, an array, or a nested object';
+
+// This version checks if the object type is Record<string, any> instead of specifying which to exclude
 type AllowedType<T> = T extends object
-    ? // eslint-disable-next-line
-      T extends Function | Map<any, any> | Set<any> | WeakMap<object, any> | WeakSet<object>
-        ? 'Type error: Function, Map, Set, WeakMap, and WeakSet types are not allowed'
-        : // Note: I believe the next two lines are correct; however, it will not work, which is why I fall back to just passing the array back into UserRow
-          // : T extends Array<infer U>
-          //     ? AllowedUnion<U>
-          T extends Array<T>
-          ? UserRow<T>
-          : T extends Date
-            ? T
-            : UserRow<T>
+    ? T extends Record<string, any>
+        ? UserRow<T>
+        : T extends Array<T>
+            ? UserRow<T>
+            : T extends Date
+                ? T 
+                : 'Type error: Class, Function, Map, Set, WeakMap, and WeakSet types are not allowed'
     : ValidateAllowedPrimitives<T> extends true
-      ? T
-      : 'Type error: Type must be an allowed primitive, an array, or a nested object';
+            ? T
+            : 'Type error: Type must be an allowed primitive, an array, or a nested object';
 
 type AllowedUnion<T> =
     IsUnion<T> extends true

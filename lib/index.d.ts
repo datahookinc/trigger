@@ -3,8 +3,12 @@ type AUTOID = number;
 type TableNotify = 'onInsert' | 'onDelete' | 'onUpdate';
 type RowNotify = 'onUpdate' | 'onDelete';
 type AllowedPrimitives = string | number | Date | boolean | null;
-type UserRow = {
-    [index: string]: AllowedPrimitives;
+type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
+type IsUnion<T, B = T> = T extends B ? ([B] extends [T] ? false : true) : false;
+type AllowedType<T> = T extends object ? T extends Record<string, any> ? UserRow<T> : T extends Array<T> ? UserRow<T> : T extends Date ? T : 'Type error: Class, Function, Map, Set, WeakMap, and WeakSet types are not allowed' : ValidateAllowedPrimitives<T> extends true ? T : 'Type error: Type must be an allowed primitive, an array, or a nested object';
+type AllowedUnion<T> = IsUnion<T> extends true ? IsUnion<Exclude<T, null>> extends true ? 'Type error: T must be a single type or a union with null only' : AllowedType<T> : AllowedType<T>;
+type UserRow<T> = {
+    [P in keyof T]: AllowedUnion<T[P]>;
 };
 export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 export type TableRow<T> = {
@@ -14,7 +18,7 @@ export type TableRow<T> = {
 };
 export interface Store {
     tables?: {
-        [index: string]: Table<ReturnType<(<T extends UserRow>() => T)>>;
+        [index: string]: ReturnType<(<T>() => UserRow<T>)>;
     };
     queues?: {
         [index: string]: Queue<unknown>;
@@ -48,7 +52,7 @@ type TableRefreshOptions<T> = {
 export type DefinedTable<T> = {
     [K in keyof T]: T[K][];
 };
-export type Table<T extends UserRow> = {
+export type Table<T extends UserRow<T>> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): {
@@ -77,7 +81,7 @@ export type Table<T extends UserRow> = {
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void;
     clear(resetIndex?: boolean): void;
 };
-export declare function CreateTable<T extends UserRow>(t: DefinedTable<T> | (keyof T)[]): Table<TableRow<T>>;
+export declare function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)[]): Table<T>;
 export type QueueItem<T> = {
     item: T;
     cb?: (ok: boolean) => void;
