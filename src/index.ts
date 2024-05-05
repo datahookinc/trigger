@@ -54,44 +54,45 @@ type Subscribe<T> = {
 type SingleSubscribe<T> = (v: T) => void;
 
 type AllowedPrimitives = string | number | Date | boolean | null;
-
 type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
+type IsUnion<T, B = T> = T extends B ? ([B] extends [T] ? false : true) : false;
 
-type IsUnion<T, B = T> = T extends B ? [B] extends [T] ? false : true : false;
+// This is a more generic version of the one below, but it does not work as intended
+// type AllowedType<T> =
+//     T extends Record<string, unknown>
+//         ? UserRow<T>
+//         : T extends Array<infer U>
+//             ? AllowedUnion<U>
+//             : ValidateAllowedPrimitives<T> extends true
+//                 ? T
+//                 : "Type error: Type must be an allowed primitive, an array, or a nested object"
 
-type ValidUnion<T> = IsUnion<T> extends true
-    ? IsUnion<Exclude<T, null>> extends true
-        ? "Type error: T must be a single type or a union with null only"
-        : T
-    : T
-
-type AllowedPrimitiveUnion<T> = 
-        ValidateAllowedPrimitives<T> extends true
+type AllowedType<T> = T extends object
+    ? // eslint-disable-next-line
+      T extends Function | Map<any, any> | Set<any> | WeakMap<object, any> | WeakSet<object>
+        ? 'Type error: Function, Map, Set, WeakMap, and WeakSet types are not allowed'
+        : // Note: I believe the next two lines are correct; however, it will not work, which is why I fall back to just passing the array back into UserRow
+          // : T extends Array<infer U>
+          //     ? AllowedUnion<U>
+          T extends Array<T>
+          ? UserRow<T>
+          : T extends Date
             ? T
-            : "Type error: Type must be an allowed primitive, an array, or a nested object"
-
-type AllowedObjectUnion<T> =
-    IsUnion<T> extends true
-        ? IsUnion<Exclude<T, null>> extends true
-            ? "Type error: T must be a single type or a union with null only"
             : UserRow<T>
-        : UserRow<T>
+    : ValidateAllowedPrimitives<T> extends true
+      ? T
+      : 'Type error: Type must be an allowed primitive, an array, or a nested object';
 
-
-type AllowedArrayUnion<T> = 
+type AllowedUnion<T> =
     IsUnion<T> extends true
         ? IsUnion<Exclude<T, null>> extends true
-            ? "Type error: T must be a single type or a union with null only"
-            : T extends Array<T>
-                ? UserRow<T>
-                : never
-    : T extends Array<T>
-    ?   UserRow<T>
-    : never
-    
+            ? 'Type error: T must be a single type or a union with null only'
+            : AllowedType<T>
+        : AllowedType<T>;
 
+// To avoid allowing symbols, something like: type UserRow<T extends Record<string, unknown>> is required, but it causes a lot of type issues at the moment
 type UserRow<T> = {
-    [P in keyof T]: AllowedPrimitiveUnion<ValidUnion<T[P]>> | AllowedObjectUnion<ValidUnion<T[P]>> | AllowedArrayUnion<ValidUnion<T[P]>>;
+    [P in keyof T]: AllowedUnion<T[P]>;
 };
 
 export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
@@ -101,8 +102,7 @@ export type TableRow<T> = { [K in keyof T]: T[K] } & { _id: number };
 
 export interface Store {
     tables?: {
-        // [index: string]: Table<ReturnType<<T extends UserRow<T>>() => T>>;
-        [index: string]: Table<ReturnType<<T>() => UserRow<T>>>;
+        [index: string]: ReturnType<<T>() => UserRow<T>>;
     };
     queues?: {
         [index: string]: Queue<unknown>;
@@ -137,7 +137,6 @@ type TableRefreshOptions<T> = {
 export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed during CreateTable to ensure it extends TableRow
 
 export type Table<T extends UserRow<T>> = {
-// export type Table<T extends UserRow<T>> = {
     use(where?: ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
@@ -196,7 +195,7 @@ function _checkTable<T>(t: DefinedTable<T>): number {
 }
 
 // This might work out that the triggers just need to send back the value, we don't need to provide the API because the user can do whatever they want as a normal function.
-export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)[]): Table<T> { 
+export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)[]): Table<T> {
     // turn t into an object if provided as an array of column names; will implicitly remove duplicate column names
     if (t instanceof Array) {
         t = t.reduce<{ [K in keyof T]: T[K][] }>((acc, cur) => {
@@ -211,10 +210,11 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
     for (let i = 0; i < nInitialLength; i++) {
         initialAUTOID[i] = ++autoID;
     }
-    const initialValues = { ...t, _id: initialAUTOID } as DefinedTable<TableRow<T>>; // put AUTOID last to override it if the user passes it in erroneously
-    const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_id" so the user does not need to
+    const table = { ...t, _id: initialAUTOID } as DefinedTable<TableRow<T>>; // put AUTOID last to override it if the user passes it in erroneously; manually add the "_id" so the user does not need to
+    // const table: DefinedTable<TableRow<T>> = initialValues; // manually add the "_id" so the user does not need to
     const originalColumnNames = Object.keys(t); // the user provided column names
-    const columnNames: ("_id" | keyof T)[] = Object.keys(initialValues) as ("_id" | keyof T)[]; // the user provided column names + "_id"
+    const columnNames = Object.keys(table) as (keyof T)[]; // the user provided column names + "_id" (this type is technically wrong - it does not properly add the _id; it should be keyof TableRow<T>)
+    // const columnNames =  Object.keys(table) as string[]// the user provided column names + "_id" (this type is technically wrong - it does not properly add the _id; it should be keyof TableRow<T>)
     const tableSubscribers: Subscribe<TableRow<T>[]>[] = [];
     const rowSubscribers: Record<AUTOID, Subscribe<TableRow<T> | undefined>[]> = {};
     let triggerBeforeInsert: undefined | ((v: TableRow<T>) => TableRow<T> | void | boolean) = undefined;
@@ -224,12 +224,55 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
     let triggerBeforeUpdate: undefined | ((cv: TableRow<T>, nv: TableRow<T>) => TableRow<T> | void | boolean) = undefined;
     let triggerAfterUpdate: undefined | ((pv: TableRow<T>, nv: TableRow<T>) => void) = undefined;
 
+    const isArray = (value: unknown): value is Array<unknown> => {
+        return Array.isArray(value);
+    };
+
+    const isDate = (value: unknown): value is Date => {
+        return value instanceof Date;
+    };
+
+    // ignores not returning Object here
+    // eslint-disable-next-line
+    const isPlainObject = (value: unknown): value is Object => {
+        if (typeof value !== 'object' || value === null) {
+            return false;
+        }
+        const proto = Object.getPrototypeOf(value);
+        return proto === Object.prototype || proto === null;
+    };
+
+    // deepClone is used when inserting, updating, and retrieving rows so there will be no mutations outside of the store
+    const deepClone = (value: unknown): unknown => {
+        if (isDate(value)) {
+            return new Date(value);
+        }
+
+        if (isArray(value)) {
+            const copy: unknown[] = Array.from({ length: value.length });
+            for (let i = 0, l = value.length; i < l; i++) {
+                copy[i] = deepClone(value[i]);
+            }
+            return copy;
+        }
+
+        if (isPlainObject(value)) {
+            const copy: { [index: string]: unknown } = {};
+            for (const key of Object.keys(value)) {
+                copy[key] = value[key as keyof typeof value];
+            }
+            return copy;
+        }
+
+        return value; // is a primitive or null
+    };
+
     const _getAllRows = (): TableRow<T>[] => {
         const entries: TableRow<T>[] = [];
         for (let i = 0, numValues = table['_id'].length; i < numValues; i++) {
             const entry = {} as TableRow<T>;
             for (let j = 0, numArrays = columnNames.length; j < numArrays; j++) {
-                entry[columnNames[j]] = table[columnNames[j]][i];
+                entry[columnNames[j]] = deepClone(table[columnNames[j]][i]) as TableRow<T>[keyof T];
             }
             entries.push(entry);
         }
@@ -250,7 +293,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
         if (idx < _getRowCount()) {
             const entry = {} as TableRow<T>;
             for (const k of columnNames) {
-                entry[k] = table[k][idx];
+                entry[k] = deepClone(table[k][idx]) as TableRow<T>[keyof T];
             }
             return entry;
         }
@@ -366,8 +409,8 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             }
         }
         ++autoID; // commit change to autoID
-        for (const k in entry) {
-            table[k].push(entry[k]);
+        for (const k of Object.keys(entry) as (keyof T)[]) {
+            table[k].push(deepClone(entry[k]) as TableRow<T>[keyof T]);
         }
 
         // pass entry to trigger
@@ -438,11 +481,11 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             }
         }
 
-        for (const k in updateValue) {
+        for (const k of Object.keys(updateValue) as (keyof T)[]) {
             if (table[k] !== undefined && k !== '_id') {
                 const v = updateValue[k];
                 if (v !== undefined) {
-                    table[k][idx] = v;
+                    table[k][idx] = deepClone(v) as TableRow<T>[keyof T];
                 }
             }
         }
@@ -499,7 +542,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                     if (where === null) {
                         return _getAllRows();
                     }
-                    const keys = Object.keys(where);
+                    const keys = Object.keys(where) as (keyof T)[];
                     if (keys.length === 0) {
                         return [];
                     } else {
@@ -624,7 +667,8 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                             setStatus('error');
                             setData([]);
                             setError(String(err));
-                        }).finally(() => isQuerying.current = false);
+                        })
+                        .finally(() => (isQuerying.current = false));
                 }
             }, ops.refreshOn);
 
@@ -720,7 +764,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                         break;
                     }
                     case 'object': {
-                        const keys = Object.keys(where);
+                        const keys = Object.keys(where) as (keyof T)[];
                         // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
                             if (!columnNames.includes(k)) {
@@ -786,7 +830,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                             remove = true;
                             break;
                         }
-                        const keys = Object.keys(where);
+                        const keys = Object.keys(where) as (keyof T)[];
                         // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
                             if (!columnNames.includes(k)) {
@@ -888,7 +932,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                         break;
                     }
                     case 'object': {
-                        const keys = Object.keys(where);
+                        const keys = Object.keys(where) as (keyof T)[];
                         // make sure the requested columns exist in the table; if they don't all exist, return undefined
                         for (const k of keys) {
                             if (!columnNames.includes(k)) {
@@ -971,7 +1015,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                         break;
                     }
                     case 'object': {
-                        const keys = Object.keys(where);
+                        const keys = Object.keys(where) as (keyof T)[];
                         if (keys.length === 0) {
                             return undefined;
                         } else {
@@ -1016,12 +1060,13 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             switch (typeof where) {
                 case 'object': {
                     // make sure the requested columns exist in the table; if they don't all exist, return undefined
-                    const keys = Object.keys(where);
+                    const keys = Object.keys(where) as (keyof T)[]; // needed to avoid flipping between string and keyof T
                     for (const k of keys) {
                         if (!columnNames.includes(k)) {
                             return 0;
                         }
                     }
+
                     const numRows = _getRowCount();
                     let n = 0;
                     // loop through the rows until we find a matching index, returns the first match if any
@@ -1089,10 +1134,13 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             }
 
             // transform the rows so the index is the _id instead of an arbitrary number
-            const transformed = rows.reduce((acc, { _id, ...x }) => {
-                acc[_id] = x;
-                return acc;
-            }, {} as { [index: number]: Omit<TableRow<T>, '_id'> });
+            const transformed = rows.reduce(
+                (acc, { _id, ...x }) => {
+                    acc[_id] = x;
+                    return acc;
+                },
+                {} as { [index: number]: Omit<TableRow<T>, '_id'> },
+            );
             console.table(transformed);
         },
         clear(resetIndex = true) {
