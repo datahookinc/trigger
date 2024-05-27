@@ -2,13 +2,11 @@
 type AUTOID = number;
 type TableNotify = 'onInsert' | 'onDelete' | 'onUpdate';
 type RowNotify = 'onUpdate' | 'onDelete';
-type AllowedPrimitives = string | number | Date | boolean | null;
-type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
-type IsUnion<T, B = T> = T extends B ? ([B] extends [T] ? false : true) : false;
-type AllowedType<T> = T extends object ? T extends Record<string, any> ? UserRow<T> : T extends Array<T> ? UserRow<T> : T extends Date ? T : 'Type error: Class, Function, Map, Set, WeakMap, and WeakSet types are not allowed' : ValidateAllowedPrimitives<T> extends true ? T : 'Type error: Type must be an allowed primitive, an array, or a nested object';
-type AllowedUnion<T> = IsUnion<T> extends true ? IsUnion<Exclude<T, null>> extends true ? 'Type error: T must be a single type or a union with null only' : AllowedType<T> : AllowedType<T>;
+type AllowedPrimitives<T> = T extends string ? string : T extends number ? number : T extends boolean ? boolean : T extends Date ? Date : T extends null ? null : never;
+type AllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object> ? false : true;
+type AllowedType2<T> = T extends AllowedPrimitives<T> ? T : T extends Array<infer U> ? Array<AllowedType2<U>> : AllowedObject<T> extends false ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger' : UserRow<T>;
 type UserRow<T> = {
-    [P in keyof T]: AllowedUnion<T[P]>;
+    [P in keyof T]: AllowedType2<T[P]>;
 };
 export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 export type TableRow<T> = {

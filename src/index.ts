@@ -53,62 +53,34 @@ type Subscribe<T> = {
 // SingleSubscribe is for "Single" data types in the Store (e.g., not tables)
 type SingleSubscribe<T> = (v: T) => void;
 
-type AllowedPrimitives = string | number | Date | boolean | null;
-type ValidateAllowedPrimitives<T> = T extends AllowedPrimitives ? true : false;
-type IsUnion<T, B = T> = T extends B ? ([B] extends [T] ? false : true) : false;
+type AllowedPrimitives<T> = T extends string
+    ? string
+    : T extends number
+      ? number
+      : T extends boolean
+        ? boolean
+        : T extends Date
+          ? Date
+          : T extends null
+            ? null
+            : never;
 
-// This is a more generic version of the one below, but it does not work as intended
-// type AllowedType<T> =
-//     T extends Record<string, unknown>
-//         ? UserRow<T>
-//         : T extends Array<infer U>
-//             ? AllowedUnion<U>
-//             : ValidateAllowedPrimitives<T> extends true
-//                 ? T
-//                 : "Type error: Type must be an allowed primitive, an array, or a nested object"
+type AllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
+    ? false
+    : true;
 
-// type AllowedType<T> = T extends object
-//     ? T extends NewableFunction | CallableFunction | Map<any, any> | Set<any> | WeakMap<object, any> | WeakSet<object>
-//         ? 'Type error: Function, Map, Set, WeakMap, and WeakSet types are not allowed'
-//         : // Note: I believe the next two lines are correct; however, it will not work, which is why I fall back to just passing the array back into UserRow
-//           // : T extends Array<infer U>
-//           //     ? AllowedUnion<U>
-//           T extends Array<T>
-//           ? UserRow<T>
-//           : T extends Date
-//             ? T
-//             : UserRow<T>
-//     : ValidateAllowedPrimitives<T> extends true
-//       ? T
-//       : 'Type error: Type must be an allowed primitive, an array, or a nested object';
-
-// This version checks if the object type is Record<string, any> instead of specifying which to exclude
-type AllowedType<T> = T extends object
-    ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      T extends Record<string, any> // this should be Record<string, unknown> but it won't work
-        ? UserRow<T>
-        : // Note: I believe the next two lines are correct; however, it will not work, which is why I fall back to just passing the array back into UserRow
-          // : T extends Array<infer U>
-          //     ? AllowedUnion<U>
-          T extends Array<T>
-          ? UserRow<T>
-          : T extends Date
-            ? T
-            : 'Type error: Class, Function, Map, Set, WeakMap, and WeakSet types are not allowed'
-    : ValidateAllowedPrimitives<T> extends true
-      ? T
-      : 'Type error: Type must be an allowed primitive, an array, or a nested object';
-
-type AllowedUnion<T> =
-    IsUnion<T> extends true
-        ? IsUnion<Exclude<T, null>> extends true
-            ? 'Type error: T must be a single type or a union with null only'
-            : AllowedType<T>
-        : AllowedType<T>;
+type AllowedType2<T> =
+    T extends AllowedPrimitives<T>
+        ? T
+        : T extends Array<infer U>
+          ? Array<AllowedType2<U>> // Note: UserRow<T> also works here
+          : AllowedObject<T> extends false
+            ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger'
+            : UserRow<T>; // recursive
 
 // To avoid allowing symbols, something like: type UserRow<T extends Record<string, unknown>> is required, but it causes a lot of type issues at the moment
 type UserRow<T> = {
-    [P in keyof T]: AllowedUnion<T[P]>;
+    [P in keyof T]: AllowedType2<T[P]>;
 };
 
 export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
