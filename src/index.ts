@@ -1203,7 +1203,6 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             rows = n == -1 ? rows : rows.slice(0, n);
 
             if (rows.length === 0) {
-                const cols = this.columnNames();
                 console.log('No rows found');
                 return '[]'; // return an empty array as string
             }
@@ -1211,13 +1210,10 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             let returnedRows: TableRow<T>[] | Omit<TableRow<T>, '_id'>[] = rows;
             if (index === false) {
                 // drop the _id from th rows
-                returnedRows = rows.reduce<Omit<TableRow<T>, '_id'>[]>(
-                    (acc, { _id, ...x }) => {
-                        acc.push(x);
-                        return acc;
-                    },
-                    [],
-                );
+                returnedRows = rows.reduce<Omit<TableRow<T>, '_id'>[]>((acc, { _id: _ignore, ...x }) => {
+                    acc.push(x);
+                    return acc;
+                }, []);
             }
             return JSON.stringify(returnedRows);
         },
