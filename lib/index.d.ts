@@ -88,6 +88,7 @@ export type Table<T extends UserRow<T>> = {
     count(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
     columnNames(): (keyof TableRow<T>)[];
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void;
+    toJSON(index?: boolean, where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): string;
     clear(resetIndex?: boolean): void;
     scan(fn: (row: TableRow<T>, idx: number) => boolean | void): void;
 };

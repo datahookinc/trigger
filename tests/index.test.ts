@@ -749,4 +749,12 @@ describe('Integration tests for useLoadData()', () => {
             expect(result.current.error).toBe('Error: This is my error');
         });
     });
+    it('should return the table as a JSON string', async () => {
+        const jsonString = tables.cat.toJSON(false);
+        expect(jsonString).not.toEqual('');
+
+        const parsed = JSON.parse(jsonString);
+        expect(parsed.length).toEqual(2);
+        expect(parsed[0]._id).toEqual(undefined);
+    });
 });

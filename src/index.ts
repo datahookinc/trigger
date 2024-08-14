@@ -163,6 +163,7 @@ export type Table<T extends UserRow<T>> = {
     count(where?: Partial<T> | ((v: TableRow<T>) => boolean)): number;
     columnNames(): (keyof TableRow<T>)[]; // returns a list of the column names in the table
     print(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): void; // a wrapper for console.table() API; by default will print the first 50 rows
+    toJSON(index?: boolean, where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n?: number): string; // a wrapper for JSON.stringify(); by default will print the first 50 rows and remove the index
     clear(resetIndex?: boolean): void; // clear the tables contents
     scan(fn: (row: TableRow<T>, idx: number) => boolean | void): void; // scan through the table's rows; returning "false" will stop the scan
 };
@@ -1196,6 +1197,29 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                 {} as { [index: number]: Omit<TableRow<T>, '_id'> },
             );
             console.table(transformed);
+        },
+        toJSON(index = false, where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, n = 50): string {
+            let rows = _getRows(where);
+            rows = n == -1 ? rows : rows.slice(0, n);
+
+            if (rows.length === 0) {
+                const cols = this.columnNames();
+                console.log('No rows found');
+                return '[]'; // return an empty array as string
+            }
+
+            let returnedRows: TableRow<T>[] | Omit<TableRow<T>, '_id'>[] = rows;
+            if (index === false) {
+                // drop the _id from th rows
+                returnedRows = rows.reduce<Omit<TableRow<T>, '_id'>[]>(
+                    (acc, { _id, ...x }) => {
+                        acc.push(x);
+                        return acc;
+                    },
+                    [],
+                );
+            }
+            return JSON.stringify(returnedRows);
         },
         clear(resetIndex = true) {
             _clearTable();

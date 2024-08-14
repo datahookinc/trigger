@@ -20,6 +20,7 @@
     "test-nested": "jest --transformIgnorePatterns 'node_modules/(?!node-fetch)/' --rootDir=./tests --watch nested.test.ts",
     "test-silent": "jest --silent --transformIgnorePatterns 'node_modules/(?!node-fetch)/' --rootDir=./tests --watch index.test.ts",
     "test-build": "jest --silent --rootDir=./tests",
+    "build-watch": "tsc -w",
     "build": "tsc",
     "prepare": "npm run build",
     "prepublishOnly": "npm run test-build && npm run format-and-lint",
