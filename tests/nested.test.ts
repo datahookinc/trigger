@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { extract, CreateTable, type Store, type Table } from '../src';
+import { CreateTable, CreateStore } from '../src';
 import 'isomorphic-fetch'; // required because jest does not recognize node's global fetch API (even though it should when using node v18)
 
 type CustomerBase = {
@@ -47,23 +47,13 @@ type OrderComplete = OrderBase & {
 
 type Order = OrderInProgress | OrderComplete;
 
-interface MyStore extends Store {
-    tables: {
-        customers: Table<ActiveCustomer>; // TableRow<Customer>' is not assignable to type 'TableRow<UserRow<any>>; 'TableRow<Customer>' is not assignable to type '{ [x: string]: UserRow<any>
-    };
-}
-
-const s: MyStore = {
+const store = CreateStore({
     tables: {
         customers: CreateTable<ActiveCustomer>(['customerID', 'firstName', 'lastName', 'orders', 'type', 'isCool', 'other', 'lastContactDate']),
-        // orders: CreateTable<Order>(['orderID', 'customerID', 'orderLocation', 'orderDate']),
-        // company: CreateTable<Company>({ companyID: [1, 2, 3], name: ['abc', 'def', 'ghi'], location: ['CA', 'US', 'EU'] }),
-        // cat: CreateTable<Cat>(['name', 'age']),
     }
-};
+});
 
-/*** EXTRACT AND FREEZE MY STRUCTURES */
-const { tables } = extract(s);
+const { tables } = store;
 
 describe('Testing Tables', () => {
     it('should increment autoID when inserting new rows', () => {
