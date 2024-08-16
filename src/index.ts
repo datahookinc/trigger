@@ -65,7 +65,7 @@ type AllowedPrimitives<T> = T extends string
             ? null
             : never;
 
-type AllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
+type IsAllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
     ? false
     : true;
 
@@ -74,7 +74,7 @@ type AllowedType2<T> =
         ? T
         : T extends Array<infer U>
           ? Array<AllowedType2<U>> // Note: UserRow<T> also works here
-          : AllowedObject<T> extends false
+          : IsAllowedObject<T> extends false
             ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger'
             : UserRow<T>; // recursive
 
@@ -88,17 +88,6 @@ export type FetchStatus = 'idle' | 'error' | 'loading' | 'success';
 // TableRow is the UserRow decorated with the _id property
 export type TableRow<T> = { [K in keyof T]: T[K] } & { _id: number };
 
-export interface Store {
-    tables?: {
-        [index: string]: ReturnType<<T>() => UserRow<T>>;
-    };
-    queues?: {
-        [index: string]: Queue<unknown>;
-    };
-    singles?: {
-        [index: string]: Single<unknown>;
-    };
-}
 /**
  * Default values:
  * {
@@ -1379,49 +1368,13 @@ export function CreateSingle<T>(s: T): Single<T> {
     };
 }
 
-// ExtractTables changes properties to readonly and removes properties that should not be exposed
-type ExtractTables<T> = {
-    readonly [K in keyof Omit<T, 'onInsert'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractTables<T[K]> : T[K]; // omit the trigger functions because the user shouldn't be exposed to those.
+// Helper types to freeze Trigger managed types
+type IsTriggerType<T> = T extends ReturnType<() => UserRow<T>> ? true : T extends Queue<unknown> ? true : T extends Single<unknown> ? true : false;
+
+type TriggerStore<T> = {
+    [K in keyof T]: IsTriggerType<T[K]> extends true ? Readonly<T[K]> : T[K];
 };
 
-export function extractTables<T extends Store['tables']>(t: T): ExtractTables<T> {
-    return t;
-}
-
-// ExtractQueues changes properties to readonly and removes properties that should not be exposed
-type ExtractQueues<T> = {
-    readonly [K in keyof Omit<T, 'onInsert' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractQueues<T[K]> : T[K]; // omit the trigger functions because the user shouldn't be exposed to those.
-};
-
-export function extractQueues<T extends Store['queues']>(t: T): ExtractQueues<T> {
-    return t;
-}
-
-// ExtractSingles changes properties to readonly and removes properties that should not be exposed
-type ExtractSingles<T> = {
-    readonly [K in keyof Omit<T, 'onSet' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractSingles<T[K]> : T[K]; // omit the trigger functions because the user shouldn't be exposed to those.
-};
-
-export function extractSingles<T extends Store['singles']>(t: T): ExtractSingles<T> {
-    return t;
-}
-
-type Extracted<T extends Store> = {
-    tables: ExtractTables<T['tables']>;
-    singles: ExtractSingles<T['singles']>;
-    queues: ExtractQueues<T['queues']>;
-};
-
-export function extract<T extends Store>(t: T): Extracted<T> {
-    const extracted = {} as Extracted<T>;
-    if (t.tables) {
-        extracted.tables = t.tables as ExtractTables<T['tables']>;
-    }
-    if (t.singles) {
-        extracted.singles = t.singles as ExtractSingles<T['singles']>;
-    }
-    if (t.queues) {
-        extracted.queues = t.queues as ExtractQueues<T['queues']>;
-    }
-    return extracted;
+export function CreateStore<T extends TriggerStore<T>>(t: T): TriggerStore<T> {
+    return t as TriggerStore<T>;
 }
