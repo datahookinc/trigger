@@ -3,8 +3,8 @@ type AUTOID = number;
 type TableNotify = 'onInsert' | 'onDelete' | 'onUpdate';
 type RowNotify = 'onUpdate' | 'onDelete';
 type AllowedPrimitives<T> = T extends string ? string : T extends number ? number : T extends boolean ? boolean : T extends Date ? Date : T extends null ? null : never;
-type AllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object> ? false : true;
-type AllowedType2<T> = T extends AllowedPrimitives<T> ? T : T extends Array<infer U> ? Array<AllowedType2<U>> : AllowedObject<T> extends false ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger' : UserRow<T>;
+type IsAllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object> ? false : true;
+type AllowedType2<T> = T extends AllowedPrimitives<T> ? T : T extends Array<infer U> ? Array<AllowedType2<U>> : IsAllowedObject<T> extends false ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger' : UserRow<T>;
 type UserRow<T> = {
     [P in keyof T]: AllowedType2<T[P]>;
 };
@@ -14,17 +14,6 @@ export type TableRow<T> = {
 } & {
     _id: number;
 };
-export interface Store {
-    tables?: {
-        [index: string]: ReturnType<(<T>() => UserRow<T>)>;
-    };
-    queues?: {
-        [index: string]: Queue<unknown>;
-    };
-    singles?: {
-        [index: string]: Single<unknown>;
-    };
-}
 /**
  * Default values:
  * {
@@ -119,22 +108,9 @@ export type Single<T> = {
     get(): T;
 };
 export declare function CreateSingle<T>(s: T): Single<T>;
-type ExtractTables<T> = {
-    readonly [K in keyof Omit<T, 'onInsert'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractTables<T[K]> : T[K];
+type IsTriggerType<T> = T extends ReturnType<() => UserRow<T>> ? true : T extends Queue<unknown> ? true : T extends Single<unknown> ? true : false;
+type TriggerStore<T> = {
+    [K in keyof T]: IsTriggerType<T[K]> extends true ? Readonly<T[K]> : T[K];
 };
-export declare function extractTables<T extends Store['tables']>(t: T): ExtractTables<T>;
-type ExtractQueues<T> = {
-    readonly [K in keyof Omit<T, 'onInsert' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractQueues<T[K]> : T[K];
-};
-export declare function extractQueues<T extends Store['queues']>(t: T): ExtractQueues<T>;
-type ExtractSingles<T> = {
-    readonly [K in keyof Omit<T, 'onSet' | 'onGet'>]: T[K] extends Record<PropertyKey, unknown> ? ExtractSingles<T[K]> : T[K];
-};
-export declare function extractSingles<T extends Store['singles']>(t: T): ExtractSingles<T>;
-type Extracted<T extends Store> = {
-    tables: ExtractTables<T['tables']>;
-    singles: ExtractSingles<T['singles']>;
-    queues: ExtractQueues<T['queues']>;
-};
-export declare function extract<T extends Store>(t: T): Extracted<T>;
+export declare function CreateStore<T extends TriggerStore<T>>(t: T): TriggerStore<T>;
 export {};
