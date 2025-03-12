@@ -737,4 +737,11 @@ describe('Integration tests for useLoadData()', () => {
         expect(parsed.length).toEqual(2);
         expect(parsed[0]._id).toEqual(undefined);
     });
+
+    it('should replace the _id when passed in', async () => {
+        store.tables.cat.insertOne({ _id: 99, name: 'Cleo', age: 10 } as Cat);
+        const cats = store.tables.cat.find();
+        expect(cats.length).toEqual(3);
+        expect(cats[2]._id).toEqual(3);
+    })
 });

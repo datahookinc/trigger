@@ -56,14 +56,14 @@ type SingleSubscribe<T> = (v: T) => void;
 type AllowedPrimitives<T> = T extends string
     ? string
     : T extends number
-      ? number
-      : T extends boolean
-        ? boolean
-        : T extends Date
-          ? Date
-          : T extends null
-            ? null
-            : never;
+    ? number
+    : T extends boolean
+    ? boolean
+    : T extends Date
+    ? Date
+    : T extends null
+    ? null
+    : never;
 
 type IsAllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
     ? false
@@ -71,12 +71,12 @@ type IsAllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unk
 
 type AllowedType2<T> =
     T extends AllowedPrimitives<T>
-        ? T
-        : T extends Array<infer U>
-          ? Array<AllowedType2<U>> // Note: UserRow<T> also works here
-          : IsAllowedObject<T> extends false
-            ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger'
-            : UserRow<T>; // recursive
+    ? T
+    : T extends Array<infer U>
+    ? Array<AllowedType2<U>> // Note: UserRow<T> also works here
+    : IsAllowedObject<T> extends false
+    ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger'
+    : UserRow<T>; // recursive
 
 // To avoid allowing symbols, something like: type UserRow<T extends Record<string, unknown>> is required, but it causes a lot of type issues at the moment
 type UserRow<T> = {
@@ -390,8 +390,8 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
     const _insertRow = (newRow: T): TableRow<T> | undefined => {
         const newAUTOID = autoID + 1;
         let entry = {
-            _id: newAUTOID,
             ...newRow,
+            _id: newAUTOID,
         } as TableRow<T>;
 
         if (triggerBeforeInsert) {
