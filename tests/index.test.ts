@@ -743,5 +743,5 @@ describe('Integration tests for useLoadData()', () => {
         const cats = store.tables.cat.find();
         expect(cats.length).toEqual(3);
         expect(cats[2]._id).toEqual(3);
-    })
+    });
 });

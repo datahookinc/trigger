@@ -127,6 +127,7 @@ export type DefinedTable<T> = { [K in keyof T]: T[K][] }; // This is narrowed du
 
 export type Table<T extends UserRow<T>> = {
     use(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T>[];
+    useOne(where?: Partial<T> | ((row: TableRow<T>) => boolean) | null, notify?: TableNotify[]): TableRow<T> | undefined;
     useById(_id: AUTOID, notify?: RowNotify[]): TableRow<T> | undefined;
     useLoadData(queryFn: () => Promise<T[]> | undefined, options?: TableRefreshOptions<T>): { data: TableRow<T>[]; status: FetchStatus; error: string | null };
     insertOne(row: T): TableRow<T> | undefined; // undefined if user aborts row insertion through the onBeforeInsert trigger
@@ -139,6 +140,7 @@ export type Table<T extends UserRow<T>> = {
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
     updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render?: boolean): TableRow<T> | undefined;
+    updateOne(where: Partial<T> | ((row: TableRow<T>) => boolean) | null, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render?: boolean): TableRow<T> | undefined;
     updateMany(
         setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
         where?: Partial<T> | ((row: TableRow<T>) => boolean) | null,
@@ -250,7 +252,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
         if (isPlainObject(value)) {
             const copy: { [index: string]: unknown } = {};
             for (const key of Object.keys(value)) {
-                copy[key] = value[key as keyof typeof value];
+                copy[key] = deepClone(value[key as keyof typeof value]);
             }
             return copy;
         }
@@ -333,6 +335,17 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
         }
         return false;
     };
+
+    const rowHasChanged = (ov: T | undefined, nv: T | undefined): boolean => {
+        if (ov && nv) {
+            for (const k in ov) {
+                if (ov[k] !== nv[k]) {
+                    return true;
+                }
+            }
+        }
+        return ov !== nv; // checks if both are undefined
+    }
 
     const registerTable = (fn: (v: TableRow<T>[]) => void, notify: TableNotify[]) => {
         tableSubscribers.push({
@@ -583,6 +596,10 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
         }
     };
 
+    const _getRowIndexById = (id: AUTOID): number => {
+        return table._id.findIndex((v) => v === id);
+    };
+
     return {
         use(where: Partial<T> | ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T>[] {
             const [v, setV] = useState<TableRow<T>[]>(() => _getRows(where)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
@@ -643,6 +660,36 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                 // changes could have been dispatched before this component was registered to listen for them
                 const currentTableValues = _getRows(whereClause.current);
                 setV(currentTableValues);
+                // unregister when component unmounts;
+                return () => {
+                    unregisterTable(subscribe);
+                };
+            }, [t]);
+            return v;
+        },
+        useOne(where: Partial<T> | ((row: TableRow<T>) => boolean) | null = null, notify: TableNotify[] = []): TableRow<T> | undefined {
+            const [v, setV] = useState<TableRow<T> | undefined>(() => this.findOne(where || undefined)); // initial value is set once registered to avoid race condition between call to useState and call to useEffect
+            // NOTE: this is required to avoid exhaustive-deps warning, and to avoid calling useEffect everytime v changes
+            const hasChanged = useRef((newValue: TableRow<T> | undefined) => rowHasChanged(v, newValue));
+            const notifyList = useRef(Array.from(new Set(notify)));
+            const whereClause = useRef(where);
+            hasChanged.current = (newValue: TableRow<T> | undefined) => rowHasChanged(v, newValue);
+
+            useEffect(() => {
+                // Note: we ignore the received rows because we simply run findOne again
+                const subscribe = () => {
+                    const newRow = this.findOne(whereClause.current || undefined);
+                    if (hasChanged.current(newRow)) {
+                        setV(newRow);
+                    }
+                };
+
+                registerTable(subscribe, notifyList.current);
+
+                // NOTE: Initialize here because of the delay between useState and useEffect which means
+                // changes could have been dispatched before this component was registered to listen for them
+                const currentValue = this.findOne(whereClause.current || undefined);
+                setV(currentValue);
                 // unregister when component unmounts;
                 return () => {
                     unregisterTable(subscribe);
@@ -939,6 +986,43 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                     }
                     return updated;
                 }
+            }
+            return undefined;
+        },
+        updateOne(where: Partial<T> | ((row: TableRow<T>) => boolean) | null, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render = true): TableRow<T> | undefined {
+            const v = this.findOne(where || undefined);
+            if (v) {
+                const idx = _getRowIndexById(v._id);
+                if (idx < 0) {
+                    logError(`Unable to find row to update; this is an internal error and should be reported`);
+                    return undefined;
+                }
+                let updated: TableRow<T> | undefined = undefined;
+                switch (typeof setValue) {
+                    case 'object': {
+                        for (const k in setValue) {
+                            if (!columnNames.includes(k)) {
+                                logError(`Invalid column provided "${k}"`);
+                                return undefined;
+                            }
+                        }
+                        updated = _updateRow(idx, v, setValue);
+                        break;
+                    }
+                    case 'function': {
+                        const nv = setValue(v);
+                        updated = _updateRow(idx, v, nv);
+                        break;
+                    }
+                }
+                if (updated && render) {
+                    // notify subscribers of changes to row and table
+                    notifyRowSubscribers('onUpdate', v._id);
+                    notifyTableSubscribers('onUpdate');
+                }
+                return updated;
+
+
             }
             return undefined;
         },
