@@ -56,14 +56,14 @@ type SingleSubscribe<T> = (v: T) => void;
 type AllowedPrimitives<T> = T extends string
     ? string
     : T extends number
-    ? number
-    : T extends boolean
-    ? boolean
-    : T extends Date
-    ? Date
-    : T extends null
-    ? null
-    : never;
+      ? number
+      : T extends boolean
+        ? boolean
+        : T extends Date
+          ? Date
+          : T extends null
+            ? null
+            : never;
 
 type IsAllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unknown, unknown> | Set<unknown> | WeakMap<object, unknown> | WeakSet<object>
     ? false
@@ -71,12 +71,12 @@ type IsAllowedObject<T> = T extends NewableFunction | CallableFunction | Map<unk
 
 type AllowedType2<T> =
     T extends AllowedPrimitives<T>
-    ? T
-    : T extends Array<infer U>
-    ? Array<AllowedType2<U>> // Note: UserRow<T> also works here
-    : IsAllowedObject<T> extends false
-    ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger'
-    : UserRow<T>; // recursive
+        ? T
+        : T extends Array<infer U>
+          ? Array<AllowedType2<U>> // Note: UserRow<T> also works here
+          : IsAllowedObject<T> extends false
+            ? 'Functions, Maps, Sets, WeakMaps, and WeakSets are not allowed types in Trigger'
+            : UserRow<T>; // recursive
 
 // To avoid allowing symbols, something like: type UserRow<T extends Record<string, unknown>> is required, but it causes a lot of type issues at the moment
 type UserRow<T> = {
@@ -140,7 +140,11 @@ export type Table<T extends UserRow<T>> = {
     onBeforeDelete(fn: (row: TableRow<T>) => boolean | void): void;
     onAfterDelete(fn: (row: TableRow<T>) => void): void;
     updateById(_id: AUTOID, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render?: boolean): TableRow<T> | undefined;
-    updateOne(where: Partial<T> | ((row: TableRow<T>) => boolean) | null, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render?: boolean): TableRow<T> | undefined;
+    updateOne(
+        where: Partial<T> | ((row: TableRow<T>) => boolean) | null,
+        setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
+        render?: boolean,
+    ): TableRow<T> | undefined;
     updateMany(
         setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
         where?: Partial<T> | ((row: TableRow<T>) => boolean) | null,
@@ -345,7 +349,7 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             }
         }
         return ov !== nv; // checks if both are undefined
-    }
+    };
 
     const registerTable = (fn: (v: TableRow<T>[]) => void, notify: TableNotify[]) => {
         tableSubscribers.push({
@@ -989,7 +993,11 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
             }
             return undefined;
         },
-        updateOne(where: Partial<T> | ((row: TableRow<T>) => boolean) | null, setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>), render = true): TableRow<T> | undefined {
+        updateOne(
+            where: Partial<T> | ((row: TableRow<T>) => boolean) | null,
+            setValue: Partial<T> | ((row: TableRow<T>) => Partial<T>),
+            render = true,
+        ): TableRow<T> | undefined {
             const v = this.findOne(where || undefined);
             if (v) {
                 const idx = _getRowIndexById(v._id);
@@ -1021,8 +1029,6 @@ export function CreateTable<T extends UserRow<T>>(t: DefinedTable<T> | (keyof T)
                     notifyTableSubscribers('onUpdate');
                 }
                 return updated;
-
-
             }
             return undefined;
         },
